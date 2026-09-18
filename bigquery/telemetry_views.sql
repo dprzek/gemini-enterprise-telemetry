@@ -1,6 +1,7 @@
 -- ==============================================================================
--- Gemini Enterprise Telemetry Analytical Views
+-- Gemini Enterprise Telemetry & Observability Analytical Views
 -- Automatically unifies real-time Cloud Logging Sink tables and backfilled logs.
+-- Includes OpenTelemetry Traces, Spans, User Events, and Latencies.
 -- ==============================================================================
 
 -- 1. Unified Daily User Activity View (Day-by-Day Granularity)
@@ -225,3 +226,27 @@ FROM (
 )
 GROUP BY feature_name
 ORDER BY total_calls DESC;
+
+-- 6. OpenTelemetry Distributed Traces & Spans View
+CREATE OR REPLACE VIEW `adk-dev-485808.gemini_enterprise_telemetry.v_observability_traces` AS
+SELECT
+  timestamp,
+  DATE(timestamp) AS trace_date,
+  trace AS trace_id,
+  spanId AS span_id,
+  COALESCE(
+    NULLIF(jsonPayload.useriamprincipal, '<elided>'),
+    NULLIF(jsonPayload.useriamprincipal, ''),
+    jsonPayload.request.userevent.userpseudoid,
+    'anonymous_user'
+  ) AS user_id,
+  jsonPayload.logmetadata.methodname AS method_name,
+  jsonPayload.logmetadata.servicename AS service_name,
+  jsonPayload.response.answer.state AS answer_state,
+  jsonPayload.response.agentinfo.displayname AS agent_display_name,
+  jsonPayload.response.agentinfo.agent AS agent_resource,
+  severity,
+  insertId
+FROM `adk-dev-485808.gemini_enterprise_telemetry.discoveryengine_googleapis_com_gemini_enterprise_user_activity`
+WHERE trace IS NOT NULL
+ORDER BY timestamp DESC;

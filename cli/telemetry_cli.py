@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Command Line Interface for Gemini Enterprise Admins.
-Enables querying adoption metrics and per-user utilization over precise time spans
-with full day-by-day breakdown.
+Enables querying adoption metrics, per-user daily utilization,
+and OpenTelemetry observability metrics, traces, and quotas.
 """
 
 import os
@@ -15,6 +15,8 @@ def main():
     parser = argparse.ArgumentParser(description="Gemini Enterprise Telemetry & Adoption CLI")
     parser.add_argument("--project", default=os.environ.get("GOOGLE_CLOUD_PROJECT", "adk-dev-485808"), help="GCP Project ID")
     parser.add_argument("--dataset", default="gemini_enterprise_telemetry", help="BigQuery Dataset ID")
+    parser.add_argument("--engine", default="rossmann-agent-designer_1784194686764", help="Discovery Engine Engine ID")
+    parser.add_argument("--location", default="eu", help="Google Cloud Location")
     
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -35,17 +37,28 @@ def main():
     p_feat = subparsers.add_parser("features", help="View breakdown across Gemini Enterprise features")
     p_feat.add_argument("--format", choices=["table", "json"], default="table")
 
-    # 4. Quotas Command
+    # 4. Observability & Traces Command
+    p_obs = subparsers.add_parser("observability", help="Inspect OpenTelemetry observability settings, engagement metrics, and traces")
+    p_obs.add_argument("--days", type=int, default=7, help="Window in days for operational metrics")
+    p_obs.add_argument("--traces", action="store_true", help="Include recent distributed trace executions")
+    p_obs.add_argument("--format", choices=["table", "json"], default="table")
+
+    # 5. Quotas Command
     p_quota = subparsers.add_parser("quotas", help="View quota limits, usage status, and reset policies")
     p_quota.add_argument("--format", choices=["table", "json"], default="table")
 
-    # 5. Digest / Report Export
-    p_rep = subparsers.add_parser("report", help="Generate full markdown adoption report with day-by-day table")
+    # 6. Digest / Report Export
+    p_rep = subparsers.add_parser("report", help="Generate full markdown adoption & observability report")
     p_rep.add_argument("--output", help="Optional output file path")
     p_rep.add_argument("--days", type=int, default=14)
 
     args = parser.parse_args()
-    service = TelemetryService(project_id=args.project, dataset_id=args.dataset)
+    service = TelemetryService(
+        project_id=args.project,
+        dataset_id=args.dataset,
+        location=args.location,
+        engine_id=args.engine
+    )
 
     if args.command == "utilization":
         if args.daily:
@@ -97,6 +110,37 @@ def main():
             print("-" * 68)
             for r in results:
                 print(f"{r['feature_name']:<35} | {r['total_calls']:<12} | {r['distinct_users']:<15}")
+
+    elif args.command == "observability":
+        metrics = service.get_observability_metrics(days=args.days)
+        traces = service.get_recent_traces(limit=10) if args.traces else []
+        if args.format == "json":
+            out = {"metrics": metrics, "recent_traces": traces}
+            print(json.dumps(out, indent=2))
+        else:
+            cfg = metrics["observability_settings"]
+            print(f"\n=== Gemini Enterprise Observability & OpenTelemetry Metrics ===")
+            print(f"• Engine ID:                   {cfg.get('engine_id')}")
+            print(f"• Location:                    {cfg.get('location')}")
+            print(f"• Observability Enabled:       {cfg.get('observability_enabled')}")
+            print(f"• Sensitive Logging Enabled:   {cfg.get('sensitive_logging_enabled')}")
+            print(f"• App Type:                    {cfg.get('app_type')}")
+            print("-" * 68)
+            print(f"• Total Agent Sessions:        {metrics['total_agent_sessions']}")
+            print(f"• Total Conversational Turns:  {metrics['total_agent_turns']}")
+            print(f"• Conversational Depth:        {metrics['conversational_depth_turns_per_session']} turns/session")
+            print(f"• Sessions with Tools:         {metrics['total_sessions_with_tool']}")
+            print(f"• Tool Adoption Rate:          {metrics['tool_adoption_rate_pct']}%")
+            print(f"• Total Engine Requests:       {metrics['total_engine_requests']}")
+            print(f"• Avg Time to 1st Token (TTFT):{metrics['avg_time_to_first_token_ms'] or 'N/A'} ms")
+            print(f"• Avg Request Total Latency:   {metrics['avg_request_total_latency_ms'] or 'N/A'} ms")
+
+            if args.traces and traces:
+                print(f"\n=== Recent OpenTelemetry Distributed Traces ({len(traces)} entries) ===")
+                print(f"{'Timestamp (UTC)':<20} | {'Trace ID':<34} | {'Method':<14} | {'User':<26} | {'State':<8}")
+                print("-" * 110)
+                for t in traces:
+                    print(f"{t['timestamp'][:19]:<20} | {t['trace_id']:<34} | {t['method_name']:<14} | {t['user_id']:<26} | {t['answer_state']:<8}")
 
     elif args.command == "quotas":
         quotas = service.get_realtime_quotas()

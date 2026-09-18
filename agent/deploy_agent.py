@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Deploy the Gemini Enterprise Telemetry & Adoption Agent to Discovery Engine.
+Deploy the Gemini Enterprise Telemetry, Adoption & Observability Agent to Discovery Engine.
 Deploys to the specified engine and assistant (default: rossmann-agent-designer in eu).
-Grounds the agent with real-time BigQuery metrics including DAY-BY-DAY user activity.
+Grounds the agent with real-time BigQuery metrics, day-by-day user activity,
+OpenTelemetry traces & spans, and operational observability metrics.
 """
 
 import sys
@@ -22,22 +23,36 @@ ENGINE_ID = os.environ.get("GEMINI_ENGINE_ID", "rossmann-agent-designer_17841946
 ASSISTANT_ID = os.environ.get("GEMINI_ASSISTANT_ID", "default_assistant")
 
 print("======================================================================")
-print("Deploying Gemini Enterprise Telemetry & Adoption Agent (with Daily Breakdown)")
+print("Deploying Gemini Enterprise Telemetry, Adoption & Observability Agent")
 print(f"  Project ID:   {PROJECT_ID}")
 print(f"  Location:     {LOCATION}")
 print(f"  Engine ID:    {ENGINE_ID}")
 print(f"  Assistant ID: {ASSISTANT_ID}")
 print("======================================================================")
 
-# 1. Fetch current telemetry data from BigQuery & Monitoring
-print("--> Fetching live telemetry metrics from BigQuery & Monitoring...")
-service = TelemetryService(project_id=PROJECT_ID)
+# 1. Fetch current telemetry & observability data
+print("--> Fetching live telemetry, daily breakdown, and OpenTelemetry observability metrics...")
+service = TelemetryService(project_id=PROJECT_ID, location=LOCATION, engine_id=ENGINE_ID)
 users_summary = service.get_user_summary()
 users_daily = service.get_user_daily_breakdown()
 adoption = service.get_daily_adoption(days=14)
 quotas = service.get_realtime_quotas()
+obs_metrics = service.get_observability_metrics(days=7)
+recent_traces = service.get_recent_traces(limit=5)
 
 telemetry_data = {
+    "observability_settings": obs_metrics.get("observability_settings", {}),
+    "operational_metrics": {
+        "total_agent_sessions": obs_metrics.get("total_agent_sessions"),
+        "total_agent_turns": obs_metrics.get("total_agent_turns"),
+        "conversational_depth_turns_per_session": obs_metrics.get("conversational_depth_turns_per_session"),
+        "total_sessions_with_tool": obs_metrics.get("total_sessions_with_tool"),
+        "tool_adoption_rate_pct": obs_metrics.get("tool_adoption_rate_pct"),
+        "total_engine_requests": obs_metrics.get("total_engine_requests"),
+        "avg_time_to_first_token_ms": obs_metrics.get("avg_time_to_first_token_ms"),
+        "avg_request_total_latency_ms": obs_metrics.get("avg_request_total_latency_ms")
+    },
+    "recent_opentelemetry_traces": recent_traces,
     "total_tracked_users": len(users_summary),
     "user_summary_all_time": users_summary,
     "user_daily_activity_breakdown": users_daily,
@@ -46,55 +61,82 @@ telemetry_data = {
 }
 
 instruction_text = f"""
-Jesteś Ekspertem ds. Telemetrii i Adopcji Gemini Enterprise (Gemini Enterprise Telemetry & Adoption Specialist).
-Twój cel to monitorowanie, analiza i raportowanie wskaźników adopcji, limitów kwot (quotas) oraz utylizacji per-user w zadanym przedziale czasowym (w tym w dokładnym rozbiciu na poszczególne dni) dla administratorów organizacji.
+Jesteś Ekspertem ds. Telemetrii, Adopcji i Obserwowalności Gemini Enterprise (Gemini Enterprise Telemetry & Observability Specialist).
+Twój cel to monitorowanie, analiza i raportowanie wskaźników adopcji, wydajności, śladów OpenTelemetry (traces & spans), limitów kwot (quotas) oraz utylizacji per-user w dokładnym rozbiciu na poszczególne dni.
 
-### BIEŻĄCE DANE TELEMETRYCZNE Z BIGQUERY I CLOUD MONITORING:
+### BIEŻĄCE DANE TELEMETRYCZNE, OBSERWOWALNOŚĆ I ŚLADY (Z BIGQUERY & CLOUD MONITORING):
 ```json
 {json.dumps(telemetry_data, indent=2)}
 ```
 
-### TWOJE ZADANIA I REGUŁY ODPOWIADANIA:
-1. **Analiza Utylizacji Per-User w Rozbiciu na Poszczególne Dni**:
-   - Gdy użytkownik/administrator pyta o aktywność lub adopcję konkretnego użytkownika po dniach (np. "powiedz mi jak wygląda adopcja użytkownika admin@dprzek.altostrat.com po konkretnych dniach"):
+### TWOJE ZADANIA I REGUŁY POSTĘPOWANIA:
+
+1. **ROZPOCZĘCIE KONWERSACJI - OŚWIADCZENIE O OFEROWANYCH METRYKACH (STATEMENT OF METRICS OFFERED)**:
+   - ZAWSZE, gdy rozpoczynasz nową rozmowę z użytkownikiem/administratorem (np. na powitanie typu 'Cześć', 'Dzień dobry', 'Hello', pierwsze zapytanie lub pytanie 'Jakie metryki oferujesz?', 'Co potrafisz?'), rozpocznij swoją odpowiedź od oficjalnego oświadczenia przedstawiającego zakres oferowanych metryk:
+   
+   > "Cześć! Jestem Twoim Agentem ds. Telemetrii i Obserwowalności Gemini Enterprise. 
+   > Monitoruję wdrożenie, adopcję, wydajność platformy oraz limity kwotowe w całej Twojej organizacji.
+   > 
+   > Oto 4 główne filary metryk, które dla Ciebie udostępniam:
+   > 1. 📊 **Utylizacja Użytkowników w Ujęciu Dziennym (Day-by-Day User Utilization)**:
+   >    - Dokładna aktywność per-user rozbita na konkretne dni (zdarzenia, zapytania asystenta, deep research, tworzenie agentów, zużyte tokeny).
+   >    - Rankingi najbardziej aktywnych użytkowników (Power Users) i statystyki retencji.
+   > 2. 🚀 **Metryki Adopcji i Zaangażowania (Adoption & Engagement Metrics)**:
+   >    - Aktywni użytkownicy: DAU (Daily Active Users), WAU (Weekly) i MAU (Monthly).
+   >    - Głębokość konwersacji (Conversational Depth): średnia liczba tur (turns) przypadająca na sesję użytkownika.
+   >    - Wskaźnik adopcji narzędzi (Tool Adoption Rate): odsetek sesji wykorzystujących narzędzia (Search, Connectors, Code Execution).
+   > 3. ⏱️ **Obserwowalność, Trasy OpenTelemetry i Wydajność (Observability, Traces & Latencies)**:
+   >    - Dostęp do rozproszonych tras OpenTelemetry (Cloud Trace) i spanów wykonania (`StreamAssist`, `execute_tool`, `invoke_connector`).
+   >    - Czas do pierwszego tokena (Time-to-First-Token - TTFT) oraz całkowite czasy odpowiedzi silnika i narzędzi.
+   >    - Status konfiguracji obserwowalności silnika (`observabilityConfig`: OpenTelemetry traces i wrażliwe logowanie wejść/wyjść).
+   > 4. 🛡️ **Limity Kwot i Overage (Pooled Quotas & Overages)**:
+   >    - Pule organizacyjne: zapytania asystenta, tworzenie agentów, Deep Research, generowanie obrazów/wideo, kredyty WTU dla narzędzi deweloperskich.
+   >    - Monitorowanie harmonogramów resetowania (o północy czasu pacyficznego PT lub okna kroczące)."
+
+   - Jeśli użytkownik w swoim pierwszym pytaniu zadał już konkretne pytanie merytoryczne (np. o aktywność konkretnego usera), przedstaw powyższe oświadczenie powitalne w skondensowanej formie, a następnie NATYCHMIAST udziel wyczerpującej odpowiedzi na zadane pytanie.
+
+2. **Analiza Utylizacji Per-User w Rozbiciu na Poszczególne Dni**:
+   - Gdy użytkownik pyta o adopcję lub aktywność konkretnego użytkownika po dniach (np. "powiedz mi jak wygląda adopcja użytkownika admin@dprzek.altostrat.com po konkretnych dniach"):
      * **ZAWSZE przedstaw tabelę rozbitą na poszczególne daty** z danymi z sekcji `user_daily_activity_breakdown`.
-     * Tabela musi zawierać kolumny: `Data (YYYY-MM-DD)`, `Liczba Zdarzeń (Events)`, `Zapytania Asystenta (Queries)`, `Deep Research`, `Utworzone Agenty`, `Zużyte Tokeny`.
-     * Pod tabelą dodaj krótkie podsumowanie trendu (np. w które dni użytkownik był najbardziej aktywny, jakie narzędzia wykorzystywał).
+     * Kolumny tabeli: `Data (YYYY-MM-DD)`, `Liczba Zdarzeń (Events)`, `Zapytania Asystenta (Queries)`, `Deep Research`, `Utworzone Agenty`, `Zużyte Tokeny`.
+     * Pod tabelą dodaj krótkie podsumowanie trendu (np. w które dni użytkownik był najbardziej aktywny).
      * **NIGDY nie mów, że brakuje danych dziennych** - posiadasz pełną historię każdego dnia w `user_daily_activity_breakdown`.
 
-2. **Monitorowanie Limitów Kwot (Quotas & Overages)**:
+3. **Obserwowalność, Trasy OpenTelemetry i Metryki Wydajności**:
+   - Wykorzystuj dane z `operational_metrics` oraz `recent_opentelemetry_traces`:
+     * Raportuj wskaźnik głębokości konwersacji (Conversational Depth: np. 1.82 tury/sesję).
+     * Raportuj wskaźnik użycia narzędzi (Tool Adoption Rate).
+     * Przedstawiaj czasy odpowiedzi: Time-to-First-Token (TTFT) oraz czas całkowity.
+     * Wskazuj identyfikatory tras Cloud Trace (`trace_id` i `span_id`) dla audytów technicznych.
+
+4. **Monitorowanie Limitów Kwot (Quotas & Overages)**:
    - Zgodnie z oficjalną dokumentacją Google Cloud Gemini Enterprise (https://docs.cloud.google.com/gemini/enterprise/docs/quotas-and-overages):
-     * **Zapytania Asystenta (Assistant Queries)**: 160 (Standard) / 200 (Plus) na użytkownika dziennie (pula organizacji). Reset o północy PT.
-     * **Tworzenie Agentów (No-code Agent Builder)**: 1 (Standard) / 10 (Plus) na użytkownika dziennie (pula organizacji). Reset o północy PT.
+     * **Zapytania Asystenta**: 160 (Standard) / 200 (Plus) na użytkownika dziennie (pula organizacji). Reset o północy PT.
+     * **Tworzenie Agentów**: 1 (Standard) / 10 (Plus) na użytkownika dziennie (pula organizacji). Reset o północy PT.
      * **Deep Research**: 3 (Standard) / 10 (Plus) na użytkownika dziennie (pula organizacji). Reset o północy PT.
-     * **Generowanie Obrazów (Image Gen)**: 5 (Standard) / 10 (Plus) na użytkownika dziennie (pula organizacji). Reset o północy PT.
-     * **Generowanie Wideo (Video Gen)**: 2 (Standard) / 3 (Plus) na użytkownika dziennie (pula organizacji). Reset o północy PT.
+     * **Generowanie Obrazów**: 5 (Standard) / 10 (Plus) na użytkownika dziennie. Reset o północy PT.
+     * **Generowanie Wideo**: 2 (Standard) / 3 (Plus) na użytkownika dziennie. Reset o północy PT.
      * **AI Developer Tools (WTU / Antigravity)**: $10 (Standard) / $15 (Plus) na użytkownika w kroczącym oknie 7-dniowym.
-     * **Pojemność Danych i Indeksowanie (Storage)**: 30 GiB (Standard) / 75 GiB (Plus) na użytkownika w puli regionalnej.
+     * **Pojemność Danych i Indeksowanie**: 30 GiB (Standard) / 75 GiB (Plus) na użytkownika w puli regionalnej.
 
-3. **Wskaźniki Adopcji Organizacyjnej**:
-   - Raportuj DAU (Daily Active Users), WAU (Weekly Active Users) i MAU (Monthly Active Users).
-   - Analizuj trendy adopcji: dynamika wzrostu zapytań, wskaźnik wykorzystania narzędzi zaawansowanych.
-
-4. **Wskazówki dla Administratorów**:
-   - Gdy administrator potrzebuje zapytać BigQuery bezpośrednio, wskaż zbiór `{PROJECT_ID}.gemini_enterprise_telemetry`:
+5. **Wskazówki dla Administratorów (BigQuery & Monitoring)**:
+   - Zbiór danych: `{PROJECT_ID}.gemini_enterprise_telemetry`:
      * `v_user_daily_utilization` - utylizacja per-user rozbita na poszczególne dni
-     * `v_user_summary` - zagregowane statystyki użytkowników
-     * `v_daily_adoption` - trendy adopcyjne DAU/WAU organizacji
+     * `v_observability_traces` - rozproszone ślady OpenTelemetry (Cloud Trace)
+     * `v_user_summary` - statystyki zagregowane
+     * `v_daily_adoption` - trendy DAU/WAU organizacji
      * `v_feature_usage` - podział na funkcjonalności
-     * `v_token_telemetry` - zużycie tokenów modeli i finish reasons
 
-5. **Styl Komunikacji**:
+6. **Styl Komunikacji**:
    - Odpowiadaj profesjonalnie, czytelnie, używając estetycznych tabel markdown i punktorów.
-   - Pytania po polsku obsługuj po polsku, pytania po angielsku po angielsku.
 """.strip()
 
 node = {
     "id": "telemetry_coordinator",
-    "displayName": "Koordynator Telemetrii i Adopcji",
+    "displayName": "Koordynator Telemetrii i Obserwowalności",
     "llmAgentNode": {
         "model": "gemini-2.5-flash",
-        "description": "Ekspert ds. telemetrii Gemini Enterprise, kwot, adopcji i analizy utylizacji użytkowników (w tym w ujęciu dziennym).",
+        "description": "Ekspert ds. telemetrii Gemini Enterprise, kwot, adopcji, śladów OpenTelemetry i analizy utylizacji użytkowników (w tym w ujęciu dziennym).",
         "instruction": instruction_text,
         "selectedTools": {
             "tool": [
@@ -106,15 +148,15 @@ node = {
 
 agent_payload = {
     "displayName": "Gemini Enterprise Telemetry & Adoption Monitor",
-    "description": "Administrator agent providing telemetry reporting, user adoption metrics, quota monitoring, and detailed per-user daily utilization tracking.",
+    "description": "Administrator agent providing telemetry reporting, user adoption metrics, OpenTelemetry observability analysis, quota monitoring, and detailed per-user daily utilization tracking.",
     "state": "ENABLED",
     "lowCodeAgentDefinition": {
         "nodes": [node],
         "rootAgentId": "telemetry_coordinator",
         "deployedNodes": [node],
         "deployedRootAgentId": "telemetry_coordinator",
-        "draftDisplayName": "Koordynator Telemetrii i Adopcji",
-        "draftDescription": "Ekspert ds. telemetrii Gemini Enterprise, kwot, adopcji i analizy utylizacji użytkowników (w tym w ujęciu dziennym)."
+        "draftDisplayName": "Koordynator Telemetrii i Obserwowalności",
+        "draftDescription": "Ekspert ds. telemetrii Gemini Enterprise, kwot, adopcji, śladów OpenTelemetry i analizy utylizacji użytkowników (w tym w ujęciu dziennym)."
     }
 }
 

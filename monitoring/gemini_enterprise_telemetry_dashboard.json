@@ -1,8 +1,58 @@
 {
-  "displayName": "Gemini Enterprise - Quotas, Adoption & Telemetry",
+  "displayName": "Gemini Enterprise - Quotas, Adoption & Observability",
   "gridLayout": {
     "columns": 2,
     "widgets": [
+      {
+        "title": "Agent Session Count & Conversational Turns",
+        "xyChart": {
+          "dataSets": [
+            {
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "metric.type=\"discoveryengine.googleapis.com/agent_session_count\"",
+                  "aggregation": {
+                    "alignmentPeriod": "3600s",
+                    "perSeriesAligner": "ALIGN_DELTA"
+                  }
+                }
+              },
+              "plotType": "LINE"
+            },
+            {
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "metric.type=\"discoveryengine.googleapis.com/agent_turn_count\"",
+                  "aggregation": {
+                    "alignmentPeriod": "3600s",
+                    "perSeriesAligner": "ALIGN_DELTA"
+                  }
+                }
+              },
+              "plotType": "LINE"
+            }
+          ]
+        }
+      },
+      {
+        "title": "Perceived Responsiveness: Time to First Token (TTFT Latency)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "metric.type=\"discoveryengine.googleapis.com/engine/time_to_first_token_latency\"",
+                  "aggregation": {
+                    "alignmentPeriod": "3600s",
+                    "perSeriesAligner": "ALIGN_MEAN"
+                  }
+                }
+              },
+              "plotType": "LINE"
+            }
+          ]
+        }
+      },
       {
         "title": "Assistant Queries (Daily Usage)",
         "xyChart": {
@@ -56,6 +106,25 @@
                 }
               },
               "plotType": "STACKED_BAR"
+            }
+          ]
+        }
+      },
+      {
+        "title": "Tool-Assisted Sessions & Tool Latency",
+        "xyChart": {
+          "dataSets": [
+            {
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "metric.type=\"discoveryengine.googleapis.com/agent_session_with_tool_count\"",
+                  "aggregation": {
+                    "alignmentPeriod": "3600s",
+                    "perSeriesAligner": "ALIGN_DELTA"
+                  }
+                }
+              },
+              "plotType": "LINE"
             }
           ]
         }
