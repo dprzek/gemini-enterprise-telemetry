@@ -1,86 +1,86 @@
 ---
 name: gemini-enterprise-telemetry
 description: >-
-  Deploy, configure, and query Gemini Enterprise telemetry, user adoption, and OpenTelemetry observability.
-  Tracks per-user utilization with day-by-day breakdowns, OpenTelemetry traces and spans in Cloud Trace,
-  operational metrics (sessions, conversational depth, tool adoption rate, time-to-first-token TTFT),
-  pooled quota limits and burn rates (assistant queries, agent building, deep research, images/video, WTU credits),
-  BigQuery analytical views, Cloud Monitoring dashboards, and agent deployment in Gemini Enterprise.
+  Wdrażaj, konfiguruj i analizuj telemetrię, adopcję użytkowników oraz obserwowalność OpenTelemetry w Gemini Enterprise.
+  Śledzi utylizację użytkowników z rozbiciem na poszczególne dni, rozproszone ślady i spany w Cloud Trace,
+  metryki operacyjne (sesje, głębokość konwersacji, wskaźnik użycia narzędzi, czas do pierwszego tokena TTFT),
+  limity kwotowe (zapytania asystenta, agenty, deep research, multimedia, kredyty WTU),
+  widoki BigQuery, dashboardy Cloud Monitoring oraz agenta Gemini Enterprise.
 ---
 
-# Gemini Enterprise Telemetry & Observability Monitoring Skill
+# Umiejętność: Monitoring Telemetrii i Obserwowalności Gemini Enterprise
 
-This skill provides procedures, automation scripts, SQL views, and agent configurations to monitor and report telemetry on Google Cloud **Gemini Enterprise** usage, adoption, and performance across an organization.
+Niniejszy skill zawiera procedury, skrypty automatyzujące, widoki analityczne SQL oraz konfigurację agenta do monitorowania i raportowania telemetrii wykorzystania, adopcji i wydajności platformy **Gemini Enterprise** w organizacji.
 
-## Architecture & Data Flow
+## Architektura i Przepływ Danych
 
-1. **Cloud Logging & Audit Logs Sink**: Automatically captures user activity, prompt interactions, model inference tokens, OpenTelemetry trace spans, and administrative actions (`CreateAgent`, `UpdateAgent`).
-2. **BigQuery Telemetry Dataset (`gemini_enterprise_telemetry`)**: Stores partitioned logs with 6 analytical SQL views:
-   - `v_user_daily_utilization`: Per-user queries, active days, deep research, agents created, and tokens in day-by-day granularity.
-   - `v_observability_traces`: OpenTelemetry distributed trace and span linkage (trace IDs, span IDs, methods, execution states).
-   - `v_user_summary`: All-time per-user aggregate metrics.
-   - `v_daily_adoption`: Organization-wide DAU, WAU, query volume trends.
-   - `v_feature_usage`: Breakdown across Gemini Enterprise features.
-   - `v_token_telemetry`: Input, output, and cache token metrics.
-3. **Cloud Monitoring & OpenTelemetry Integration**:
-   - Observability settings: `observabilityConfig` (enables OpenTelemetry spans & sensitive logging).
-   - Real-time operational metrics: `agent_session_count`, `agent_turn_count` (conversational depth), `agent_session_with_tool_count` (tool adoption rate), and `engine/time_to_first_token_latency` (TTFT).
-   - Real-time pooled quota limits and usage against edition thresholds (`discoveryengine.googleapis.com/quota/*`).
-4. **Gemini Enterprise Agent**: Deployed directly in Gemini Enterprise Agent Designer (`rossmann-agent-designer` in `eu`).
-   - Initiates conversations with an **opening statement of metrics offered** (User utilization, Adoption & Engagement, Observability & Traces, Quotas).
-   - Answers queries on day-by-day adoption, user rankings, latencies, and quota burn rates.
-5. **Admin CLI**: Instant querying of day-by-day utilization (`--daily`), adoption trends, and OpenTelemetry metrics (`python3 cli/telemetry_cli.py observability --traces`).
+1. **Zlew Cloud Logging i Logów Audytowych (Sink)**: Automatycznie przechwytuje aktywność użytkowników, interakcje z promptami, tokeny modeli, spany OpenTelemetry oraz akcje administracyjne (`CreateAgent`, `UpdateAgent`).
+2. **Zbiór Telemetryczny BigQuery (`gemini_enterprise_telemetry`)**: Przechowuje partycjonowane logi z 6 widokami analitycznymi:
+   - `v_user_daily_utilization`: Dokładna aktywność per-user w rozbiciu na dni (zdarzenia, zapytania, deep research, tworzone agenty, zużyte tokeny).
+   - `v_observability_traces`: Powiązania rozproszonych śladów OpenTelemetry (identyfikatory trace ID, span ID, metody, statusy wykonania).
+   - `v_user_summary`: Zagregowane statystyki użytkowników od początku rejestracji.
+   - `v_daily_adoption`: Wskaźniki adopcji organizacji (trendy DAU/WAU/MAU, zapytania, spalone tokeny).
+   - `v_feature_usage`: Wykorzystanie poszczególnych modułów i funkcji Gemini Enterprise.
+   - `v_token_telemetry`: Metryki tokenów wejściowych, wyjściowych i buforowanych.
+3. **Integracja z Cloud Monitoring i OpenTelemetry**:
+   - Ustawienia obserwowalności: `observabilityConfig` (aktywacja śladów OpenTelemetry oraz wrażliwego logowania wejść/wyjść).
+   - Metryki operacyjne: `agent_session_count`, `agent_turn_count` (głębokość konwersacji), `agent_session_with_tool_count` (wskaźnik adopcji narzędzi) oraz `engine/time_to_first_token_latency` (TTFT).
+   - Bieżące monitorowanie limitów kwotowych i tempa ich zużycia (`discoveryengine.googleapis.com/quota/*`).
+4. **Agent Gemini Enterprise**: Wdrożony bezpośrednio w silniku Gemini Enterprise (`rossmann-agent-designer` w `eu`).
+   - Rozpoczyna konwersację od **oświadczenia o oferowanych metrykach** (utylizacja dzienna, adopcja/zaangażowanie, obserwowalność/ślady, limity kwotowe).
+   - Odpowiada na zapytania o aktywność użytkowników w poszczególnych dniach, rankingi, opóźnienia i limity kwotowe.
+5. **CLI Administratora**: Natychmiastowe badanie utylizacji po dniach (`--daily`), trendów adopcji i metryk obserwowalności (`python3 cli/telemetry_cli.py observability --traces`).
 
 ---
 
-## Prerequisites & Required IAM Roles
+## Wymagania Wstępne i Role IAM
 
-To deploy the telemetry pipeline in any customer Google Cloud project, ensure the following roles are granted:
+Aby wdrożyć potok telemetryczny w projekcie Google Cloud klienta, upewnij się, że przyznano następujące role:
 
-| Role | Purpose |
+| Rola IAM | Przeznaczenie |
 | :--- | :--- |
-| `roles/discoveryengine.agentspaceAdmin` | Manage and deploy agents in Discovery Engine / Gemini Enterprise |
-| `roles/logging.configWriter` | Create Cloud Logging sink routing logs to BigQuery |
-| `roles/bigquery.admin` | Create BigQuery dataset, tables, and views |
-| `roles/monitoring.viewer` / `roles/monitoring.editor` | Query quota metrics and deploy Cloud Monitoring dashboard |
-| `roles/cloudtrace.user` | View and inspect distributed traces in Cloud Trace |
-| `roles/resourcemanager.projectIamAdmin` | Grant BigQuery Data Editor to the sink service account |
+| `roles/discoveryengine.agentspaceAdmin` | Zarządzanie i wdrażanie agentów w Discovery Engine / Gemini Enterprise |
+| `roles/logging.configWriter` | Tworzenie zlewu Cloud Logging przesyłającego logi do BigQuery |
+| `roles/bigquery.admin` | Tworzenie zbioru BigQuery, tabel i widoków analitycznych SQL |
+| `roles/monitoring.viewer` / `roles/monitoring.editor` | Odczyt metryk kwotowych i wdrożenie dashboardu Cloud Monitoring |
+| `roles/cloudtrace.user` | Analiza rozproszonych śladów w Google Cloud Trace |
+| `roles/resourcemanager.projectIamAdmin` | Nadanie uprawnień BigQuery Data Editor dla tożsamości zlewu logów |
 
 ---
 
-## One-Command Automated Deployment
+## Automatyczne Wdrożenie Jednym Poleceniem
 
-Run the automated deployment script pointing to the customer's project and engine:
+Uruchom skrypt wdrożeniowy wskazując projekt i identyfikator silnika klienta:
 
 ```bash
 ./scripts/deploy_pipeline.sh <PROJECT_ID> <LOCATION> <ENGINE_ID> [DATASET_ID]
 ```
 
-Example for EU engine `rossmann-agent-designer`:
+Przykład dla silnika `rossmann-agent-designer` w regionie UE:
 ```bash
 ./scripts/deploy_pipeline.sh adk-dev-485808 eu rossmann-agent-designer_1784194686764 gemini_enterprise_telemetry
 ```
 
 ---
 
-## Key CLI Commands
+## Główne Komendy CLI dla Administratora
 
-### 1. Observability & OpenTelemetry Metrics:
+### 1. Metryki Obserwowalności i Rozproszone Ślady:
 ```bash
 python3 cli/telemetry_cli.py observability --traces
 ```
 
-### 2. Day-by-Day User Utilization:
+### 2. Aktywność Użytkownika w Rozbiciu na Poszczególne Dni:
 ```bash
-python3 cli/telemetry_cli.py utilization --daily --user admin@mycompany.com
+python3 cli/telemetry_cli.py utilization --daily --user admin@twojafirma.pl
 ```
 
-### 3. Organization Adoption Trends (DAU):
+### 3. Trendy Adopcji w Organizacji (DAU):
 ```bash
 python3 cli/telemetry_cli.py adoption --days 30
 ```
 
-### 4. Real-time Quotas & Headroom:
+### 4. Stan Limitów Kwotowych i Puli:
 ```bash
 python3 cli/telemetry_cli.py quotas
 ```

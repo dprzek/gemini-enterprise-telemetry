@@ -23,15 +23,15 @@ ENGINE_ID = os.environ.get("GEMINI_ENGINE_ID", "rossmann-agent-designer_17841946
 ASSISTANT_ID = os.environ.get("GEMINI_ASSISTANT_ID", "default_assistant")
 
 print("======================================================================")
-print("Deploying Gemini Enterprise Telemetry, Adoption & Observability Agent")
-print(f"  Project ID:   {PROJECT_ID}")
-print(f"  Location:     {LOCATION}")
-print(f"  Engine ID:    {ENGINE_ID}")
-print(f"  Assistant ID: {ASSISTANT_ID}")
+print("Wdrażanie Agenta Telemetrii, Adopcji i Obserwowalności Gemini Enterprise")
+print(f"  Projekt:      {PROJECT_ID}")
+print(f"  Lokalizacja:  {LOCATION}")
+print(f"  Silnik:       {ENGINE_ID}")
+print(f"  Asystent:     {ASSISTANT_ID}")
 print("======================================================================")
 
-# 1. Fetch current telemetry & observability data
-print("--> Fetching live telemetry, daily breakdown, and OpenTelemetry observability metrics...")
+# 1. Pobieranie bieżących danych telemetrycznych i wskaźników obserwowalności
+print("--> Pobieranie aktywności, rozbicia dziennego i metryk OpenTelemetry...")
 service = TelemetryService(project_id=PROJECT_ID, location=LOCATION, engine_id=ENGINE_ID)
 users_summary = service.get_user_summary()
 users_daily = service.get_user_daily_breakdown()
@@ -186,18 +186,18 @@ try:
         result = json.load(response)
         agent_name = result.get("name", "")
         agent_id = agent_name.split("/")[-1]
-        print(f"✔ Successfully created and deployed agent!")
-        print(f"  Agent Name: {agent_name}")
-        print(f"  Agent ID:   {agent_id}")
-        print(f"  State:      {result.get('state', 'UNKNOWN')}")
+        print(f"✔ Pomyślnie utworzono i wdrożono agenta!")
+        print(f"  Nazwa Agenta: {agent_name}")
+        print(f"  ID Agenta:    {agent_id}")
+        print(f"  Status:       {result.get('state', 'UNKNOWN')}")
 except urllib.error.HTTPError as e:
     err_body = e.read().decode("utf-8")
-    print(f"Failed to create agent: HTTP {e.code} - {err_body}")
+    print(f"Błąd tworzenia agenta: HTTP {e.code} - {err_body}")
     sys.exit(1)
 except Exception as e:
-    print(f"Unexpected error: {e}")
+    print(f"Nieoczekiwany błąd: {e}")
     sys.exit(1)
 
 print("======================================================================")
-print("Agent Deployment Complete!")
+print("Wdrażanie agenta zakończone pomyślnie!")
 print("======================================================================")

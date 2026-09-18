@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Helper Script to Push Gemini Enterprise Telemetry to dprzek@ GitHub Repository
+# Skrypt pomocniczy do publikacji repozytorium do GitHub (dprzek)
 # ==============================================================================
 set -euo pipefail
 
@@ -13,89 +13,89 @@ REPO_NAME="gemini-enterprise-telemetry"
 ARG="${1:-${GITHUB_PAT:-}}"
 
 echo "======================================================================"
-echo "Publishing Gemini Enterprise Telemetry Suite to GitHub (${GITHUB_USER}/${REPO_NAME})"
+echo "Publikacja pakietu telemetrii Gemini Enterprise do GitHub (${GITHUB_USER}/${REPO_NAME})"
 echo "======================================================================"
 
-# Reset clean origin remote
+# Ustawienie czystego zdalnego adresu origin
 git remote set-url origin "https://github.com/${GITHUB_USER}/${REPO_NAME}.git"
 
-# Detect if argument was accidentally passed as a URL
+# Wykrycie, czy argument został omyłkowo przekazany jako adres URL
 if [[ "${ARG}" =~ ^https?:// ]] || [[ "${ARG}" =~ \.git$ ]]; then
-  echo "⚠️  You passed a repository URL (${ARG}) instead of a GitHub Personal Access Token."
+  echo "⚠️  Przekazano adres URL repozytorium (${ARG}) zamiast osobistego tokenu dostępu GitHub (PAT)."
   echo ""
-  echo "Usage:"
-  echo "  ./scripts/push_to_github.sh <YOUR_GITHUB_PERSONAL_ACCESS_TOKEN>"
+  echo "Sposób użycia:"
+  echo "  ./scripts/push_to_github.sh <TWÓJ_TOKEN_GITHUB_PAT>"
   echo ""
-  echo "Example:"
+  echo "Przykład:"
   echo "  ./scripts/push_to_github.sh ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
   echo ""
-  echo "If you don't have a token yet:"
-  echo "1. Create the repository on GitHub at: https://github.com/new"
-  echo "   Name: ${REPO_NAME}"
-  echo "2. Generate a token at: https://github.com/settings/tokens (select 'repo' scope)"
-  echo "3. Run this script with the token."
+  echo "Jeśli jeszcze nie posiadasz tokenu:"
+  echo "1. Utwórz repozytorium na GitHubie: https://github.com/new"
+  echo "   Nazwa: ${REPO_NAME}"
+  echo "2. Wygeneruj token w: https://github.com/settings/tokens (wybierz uprawnienie 'repo')"
+  echo "3. Uruchom ten skrypt z tokenem."
   exit 1
 fi
 
 GITHUB_TOKEN="${ARG}"
 
 if [[ -n "${GITHUB_TOKEN}" ]]; then
-  echo "--> Checking if repository ${GITHUB_USER}/${REPO_NAME} exists on GitHub..."
+  echo "--> Sprawdzanie, czy repozytorium ${GITHUB_USER}/${REPO_NAME} istnieje na GitHub..."
   HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
     -H "Authorization: token ${GITHUB_TOKEN}" \
     "https://api.github.com/repos/${GITHUB_USER}/${REPO_NAME}" || true)
 
   if [[ "${HTTP_STATUS}" == "404" ]]; then
-    echo "--> Repository does not exist yet. Creating https://github.com/${GITHUB_USER}/${REPO_NAME} via GitHub API..."
+    echo "--> Repozytorium jeszcze nie istnieje. Tworzenie https://github.com/${GITHUB_USER}/${REPO_NAME} przez API GitHub..."
     CREATE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
       -H "Authorization: token ${GITHUB_TOKEN}" \
       -H "Accept: application/vnd.github.v3+json" \
       https://api.github.com/user/repos \
-      -d "{\"name\":\"${REPO_NAME}\",\"description\":\"Gemini Enterprise Telemetry, Quota & Adoption Monitoring Suite\",\"private\":false}")
+      -d "{\"name\":\"${REPO_NAME}\",\"description\":\"Pakiet monitorowania telemetrii, kwot, adopcji i obserwowalności Gemini Enterprise\",\"private\":false}")
 
     if [[ "${CREATE_STATUS}" == "201" ]]; then
-      echo "✔ Successfully created remote repository on GitHub!"
+      echo "✔ Pomyślnie utworzono zdalne repozytorium na GitHub!"
     else
-      echo "⚠️ Could not auto-create repository (HTTP ${CREATE_STATUS}). Please create it manually at https://github.com/new with name '${REPO_NAME}'."
+      echo "⚠️ Nie udało się automatycznie utworzyć repozytorium (HTTP ${CREATE_STATUS}). Utwórz je ręcznie na https://github.com/new z nazwą '${REPO_NAME}'."
     fi
   elif [[ "${HTTP_STATUS}" == "200" ]]; then
-    echo "✔ Found existing repository ${GITHUB_USER}/${REPO_NAME} on GitHub."
+    echo "✔ Znaleziono istniejące repozytorium ${GITHUB_USER}/${REPO_NAME} na GitHub."
   fi
 
-  echo "--> Pushing commits to GitHub..."
+  echo "--> Wypychanie commitów do GitHub..."
   git remote set-url origin "https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/${GITHUB_USER}/${REPO_NAME}.git"
   git branch -M main
   git push -u origin main
-  # Clean token from remote url for security
+  # Czyszczenie tokenu ze zdalnego adresu ze względów bezpieczeństwa
   git remote set-url origin "https://github.com/${GITHUB_USER}/${REPO_NAME}.git"
   echo ""
   echo "======================================================================"
-  echo "✔ Successfully published to https://github.com/${GITHUB_USER}/${REPO_NAME}!"
+  echo "✔ Pomyślnie opublikowano w https://github.com/${GITHUB_USER}/${REPO_NAME}!"
   echo "======================================================================"
   exit 0
 fi
 
-# Fallback: check if SSH authentication is available
-echo "--> Checking SSH authentication to GitHub..."
+# Ścieżka alternatywna: sprawdzenie uwierzytelniania SSH
+echo "--> Sprawdzanie uwierzytelniania SSH do GitHub..."
 if ssh -T -o BatchMode=yes -o StrictHostKeyChecking=accept-new git@github.com 2>&1 | grep -q "successfully authenticated"; then
   git remote set-url origin "git@github.com:${GITHUB_USER}/${REPO_NAME}.git"
   git branch -M main
   git push -u origin main
-  echo "✔ Successfully pushed via SSH to git@github.com:${GITHUB_USER}/${REPO_NAME}.git!"
+  echo "✔ Pomyślnie wypchnięto przez SSH do git@github.com:${GITHUB_USER}/${REPO_NAME}.git!"
   exit 0
 fi
 
 echo ""
-echo "Notice: GitHub requires authentication (Personal Access Token or SSH Key)."
+echo "Uwaga: GitHub wymaga uwierzytelnienia (osobistego tokenu dostępu PAT lub klucza SSH)."
 echo ""
-echo "Option 1 (Recommended - Token):"
-echo "  1. If you haven't created the repo yet, do it at https://github.com/new (Name: ${REPO_NAME})"
-echo "  2. Generate a token at https://github.com/settings/tokens (scope: 'repo')"
-echo "  3. Run: ./scripts/push_to_github.sh <YOUR_TOKEN>"
+echo "Opcja 1 (Zalecana - Token):"
+echo "  1. Jeśli repozytorium jeszcze nie istnieje, utwórz je na https://github.com/new (Nazwa: ${REPO_NAME})"
+echo "  2. Wygeneruj token na https://github.com/settings/tokens (zakres: 'repo')"
+echo "  3. Uruchom: ./scripts/push_to_github.sh <TWÓJ_TOKEN>"
 echo ""
-echo "Option 2 (SSH Key):"
+echo "Opcja 2 (Klucz SSH):"
 echo "  git remote set-url origin git@github.com:${GITHUB_USER}/${REPO_NAME}.git"
 echo "  git push -u origin main"
 echo ""
-echo "Option 3 (Interactive git push):"
+echo "Opcja 3 (Interaktywny git push):"
 echo "  git push -u origin main"
