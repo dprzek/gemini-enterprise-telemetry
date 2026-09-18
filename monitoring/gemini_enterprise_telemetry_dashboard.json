@@ -1,0 +1,122 @@
+{
+  "displayName": "Gemini Enterprise - Quotas, Adoption & Telemetry",
+  "gridLayout": {
+    "columns": 2,
+    "widgets": [
+      {
+        "title": "Assistant Queries (Daily Usage)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "metric.type=\"discoveryengine.googleapis.com/quota/text_answer_gen_tier_enterprise_regional/usage\" resource.type=\"consumed_api\"",
+                  "aggregation": {
+                    "alignmentPeriod": "3600s",
+                    "perSeriesAligner": "ALIGN_RATE"
+                  }
+                }
+              },
+              "plotType": "LINE"
+            }
+          ]
+        }
+      },
+      {
+        "title": "Deep Research Queries",
+        "xyChart": {
+          "dataSets": [
+            {
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "metric.type=\"discoveryengine.googleapis.com/quota/deep_research_query_total_tier_enterprise_regional/usage\" resource.type=\"consumed_api\"",
+                  "aggregation": {
+                    "alignmentPeriod": "3600s",
+                    "perSeriesAligner": "ALIGN_RATE"
+                  }
+                }
+              },
+              "plotType": "LINE"
+            }
+          ]
+        }
+      },
+      {
+        "title": "Agents Created (Agent Builder)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "metric.type=\"discoveryengine.googleapis.com/quota/agents_tier_enterprise_regional/usage\" resource.type=\"consumed_api\"",
+                  "aggregation": {
+                    "alignmentPeriod": "3600s",
+                    "perSeriesAligner": "ALIGN_RATE"
+                  }
+                }
+              },
+              "plotType": "STACKED_BAR"
+            }
+          ]
+        }
+      },
+      {
+        "title": "Image & Video Generation",
+        "xyChart": {
+          "dataSets": [
+            {
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "metric.type=\"discoveryengine.googleapis.com/quota/image_gen_tier_enterprise_regional/usage\" resource.type=\"consumed_api\"",
+                  "aggregation": {
+                    "alignmentPeriod": "3600s",
+                    "perSeriesAligner": "ALIGN_RATE"
+                  }
+                }
+              },
+              "plotType": "LINE"
+            }
+          ]
+        }
+      },
+      {
+        "title": "AI Developer Tools (WTU) Consumption",
+        "xyChart": {
+          "dataSets": [
+            {
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "metric.type=\"discoveryengine.googleapis.com/quota/ai_dev_tool_wtu_tier_enterprise_standard_regional/usage\" resource.type=\"consumed_api\"",
+                  "aggregation": {
+                    "alignmentPeriod": "3600s",
+                    "perSeriesAligner": "ALIGN_RATE"
+                  }
+                }
+              },
+              "plotType": "LINE"
+            }
+          ]
+        }
+      },
+      {
+        "title": "Data Storage & Total Document Size",
+        "xyChart": {
+          "dataSets": [
+            {
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "metric.type=\"discoveryengine.googleapis.com/total_document_size_regional\" resource.type=\"consumed_api\"",
+                  "aggregation": {
+                    "alignmentPeriod": "3600s",
+                    "perSeriesAligner": "ALIGN_MEAN"
+                  }
+                }
+              },
+              "plotType": "LINE"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
