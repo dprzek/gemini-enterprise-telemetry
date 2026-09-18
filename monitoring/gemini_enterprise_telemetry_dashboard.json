@@ -1,10 +1,10 @@
 {
-  "displayName": "Gemini Enterprise - Quotas, Adoption & Observability",
+  "displayName": "Gemini Enterprise - Limity Kwotowe, Adopcja i Obserwowalność",
   "gridLayout": {
     "columns": 2,
     "widgets": [
       {
-        "title": "Agent Session Count & Conversational Turns",
+        "title": "Liczba Sesji Agenta i Tury Konwersacji",
         "xyChart": {
           "dataSets": [
             {
@@ -35,7 +35,7 @@
         }
       },
       {
-        "title": "Perceived Responsiveness: Time to First Token (TTFT Latency)",
+        "title": "Responsywność UX: Czas do Pierwszego Tokena (Opóźnienie TTFT)",
         "xyChart": {
           "dataSets": [
             {
@@ -54,7 +54,7 @@
         }
       },
       {
-        "title": "Assistant Queries (Daily Usage)",
+        "title": "Zapytania Asystenta (Użycie Dzienne)",
         "xyChart": {
           "dataSets": [
             {
@@ -73,7 +73,7 @@
         }
       },
       {
-        "title": "Deep Research Queries",
+        "title": "Zapytania Deep Research",
         "xyChart": {
           "dataSets": [
             {
@@ -92,7 +92,7 @@
         }
       },
       {
-        "title": "Agents Created (Agent Builder)",
+        "title": "Utworzone Agenty (Agent Builder)",
         "xyChart": {
           "dataSets": [
             {
@@ -111,7 +111,7 @@
         }
       },
       {
-        "title": "Tool-Assisted Sessions & Tool Latency",
+        "title": "Sesje z Użyciem Narzędzi i Opóźnienia Narzędzi",
         "xyChart": {
           "dataSets": [
             {
@@ -130,7 +130,7 @@
         }
       },
       {
-        "title": "Image & Video Generation",
+        "title": "Generowanie Obrazów i Wideo",
         "xyChart": {
           "dataSets": [
             {
@@ -149,7 +149,7 @@
         }
       },
       {
-        "title": "AI Developer Tools (WTU) Consumption",
+        "title": "Zużycie Kredytów Narzędzi AI Developer (WTU)",
         "xyChart": {
           "dataSets": [
             {
@@ -168,7 +168,7 @@
         }
       },
       {
-        "title": "Data Storage & Total Document Size",
+        "title": "Przestrzeń Dyskowa i Całkowity Rozmiar Dokumentów",
         "xyChart": {
           "dataSets": [
             {

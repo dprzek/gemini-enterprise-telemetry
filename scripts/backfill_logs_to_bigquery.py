@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Backfill historical Gemini Enterprise logs from Cloud Logging into BigQuery.
-Ensures instant telemetry availability for past activity.
+Wsteczna ingestja logów Gemini Enterprise z Cloud Logging do BigQuery.
+Zapewnia natychmiastową dostępność telemetrii dla aktywności historycznej.
 """
 import sys
 import json
@@ -15,7 +15,7 @@ DAYS = int(sys.argv[3]) if len(sys.argv) > 3 else 30
 
 client = bigquery.Client(project=PROJECT_ID)
 
-print(f"=== Backfilling Gemini Enterprise logs for {PROJECT_ID} (Past {DAYS} days) ===")
+print(f"=== Wsteczna ingestja logów Gemini Enterprise dla {PROJECT_ID} (Ostatnie {DAYS} dni) ===")
 
 def fetch_logs(filter_str, limit=1000):
     cmd = [
@@ -27,17 +27,17 @@ def fetch_logs(filter_str, limit=1000):
     ]
     res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if res.returncode != 0:
-        print(f"Error fetching logs: {res.stderr}")
+        print(f"Błąd podczas pobierania logów: {res.stderr}")
         return []
     try:
         return json.loads(res.stdout)
     except json.JSONDecodeError:
         return []
 
-# 1. Backfill Cloud Audit Activity (Agent creation, modification)
-print("--> Fetching Cloud Audit logs for Discovery Engine / Gemini Enterprise...")
+# 1. Wsteczna ingestja Cloud Audit Activity (tworzenie i modyfikacja agentów)
+print("--> Pobieranie logów Cloud Audit dla Discovery Engine / Gemini Enterprise...")
 audit_logs = fetch_logs('logName=~"cloudaudit.googleapis.com" AND protoPayload.serviceName="discoveryengine.googleapis.com"')
-print(f"    Found {len(audit_logs)} audit log entries.")
+print(f"    Znaleziono {len(audit_logs)} wpisów logów audytowych.")
 
 if audit_logs:
     table_id = f"{PROJECT_ID}.{DATASET_ID}.cloudaudit_googleapis_com_activity"
@@ -67,14 +67,14 @@ if audit_logs:
         })
     errors = client.insert_rows_json(table_id, rows)
     if errors:
-        print(f"    Errors inserting audit rows: {errors}")
+        print(f"    Błędy podczas wstawiania wierszy audytu: {errors}")
     else:
-        print(f"    Inserted {len(rows)} audit records into {table_id}.")
+        print(f"    Wstawiono {len(rows)} rekordów audytowych do {table_id}.")
 
-# 2. Backfill Gemini Enterprise User Activity
-print("--> Fetching Gemini Enterprise User Activity logs...")
+# 2. Wsteczna ingestja aktywności użytkowników Gemini Enterprise
+print("--> Pobieranie logów aktywności użytkowników Gemini Enterprise...")
 user_logs = fetch_logs('logName="projects/' + PROJECT_ID + '/logs/discoveryengine.googleapis.com%2Fgemini_enterprise_user_activity"')
-print(f"    Found {len(user_logs)} user activity log entries.")
+print(f"    Znaleziono {len(user_logs)} wpisów aktywności użytkowników.")
 
 if user_logs:
     table_id = f"{PROJECT_ID}.{DATASET_ID}.gemini_enterprise_user_activity"
@@ -117,14 +117,14 @@ if user_logs:
         })
     errors = client.insert_rows_json(table_id, rows)
     if errors:
-        print(f"    Errors inserting user activity rows: {errors}")
+        print(f"    Błędy podczas wstawiania wierszy aktywności: {errors}")
     else:
-        print(f"    Inserted {len(rows)} user activity records into {table_id}.")
+        print(f"    Wstawiono {len(rows)} rekordów aktywności użytkowników do {table_id}.")
 
-# 3. Backfill Inference Operation Details (Token Metrics)
-print("--> Fetching GenAI Inference Operation Details...")
+# 3. Wsteczna ingestja operacji wnioskowania GenAI (tokeny)
+print("--> Pobieranie szczegółów operacji wnioskowania GenAI...")
 inference_logs = fetch_logs('logName="projects/' + PROJECT_ID + '/logs/discoveryengine.googleapis.com%2Fgen_ai.client.inference.operation.details"')
-print(f"    Found {len(inference_logs)} inference log entries.")
+print(f"    Znaleziono {len(inference_logs)} wpisów logów wnioskowania.")
 
 if inference_logs:
     table_id = f"{PROJECT_ID}.{DATASET_ID}.gen_ai_client_inference_operation_details"
@@ -169,8 +169,8 @@ if inference_logs:
         })
     errors = client.insert_rows_json(table_id, rows)
     if errors:
-        print(f"    Errors inserting inference rows: {errors}")
+        print(f"    Błędy podczas wstawiania wierszy wnioskowania: {errors}")
     else:
-        print(f"    Inserted {len(rows)} inference records into {table_id}.")
+        print(f"    Wstawiono {len(rows)} rekordów wnioskowania do {table_id}.")
 
-print("=== Backfill completed successfully! ===")
+print("=== Wsteczna ingestja zakończona pomyślnie! ===")

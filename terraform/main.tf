@@ -12,22 +12,22 @@ provider "google" {
   project = var.project_id
 }
 
-# 1. BigQuery Dataset for Gemini Enterprise Telemetry
+# 1. Zbiór danych BigQuery dla telemetrii Gemini Enterprise
 resource "google_bigquery_dataset" "telemetry" {
   dataset_id                  = var.dataset_id
-  friendly_name               = "Gemini Enterprise Telemetry & Adoption"
-  description                 = "Aggregated audit trails, user activity, and model inference telemetry"
+  friendly_name               = "Telemetria i Adopcja Gemini Enterprise"
+  description                 = "Zagregowane logi audytowe, aktywność użytkowników oraz telemetria wnioskowania modeli"
   location                    = var.region
-  default_table_expiration_ms = 7776000000 # 90 days retention (configurable)
+  default_table_expiration_ms = 7776000000 # Retencja 90 dni (konfigurowalna)
 
   labels = {
-    env       = "telemetry"
+    env        = "telemetry"
     managed_by = "terraform"
-    service   = "gemini_enterprise"
+    service    = "gemini_enterprise"
   }
 }
 
-# 2. Cloud Logging Sink
+# 2. Zlew logów Cloud Logging (Sink) do BigQuery
 resource "google_logging_project_sink" "telemetry_sink" {
   name                   = var.sink_name
   destination            = "bigquery.googleapis.com/projects/${var.project_id}/datasets/${google_bigquery_dataset.telemetry.dataset_id}"
@@ -39,7 +39,7 @@ resource "google_logging_project_sink" "telemetry_sink" {
   }
 }
 
-# 3. IAM Binding for Sink Service Account
+# 3. Przypisanie uprawnień IAM dla konta serwisowego zlewu logów
 resource "google_project_iam_member" "sink_writer" {
   project = var.project_id
   role    = "roles/bigquery.dataEditor"

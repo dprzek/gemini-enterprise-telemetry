@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Gemini Enterprise Telemetry Pipeline - BigQuery & Cloud Logging Sink Setup
+# Potok Telemetrii Gemini Enterprise - Konfiguracja BigQuery i Zlewu Cloud Logging
 # ==============================================================================
 set -euo pipefail
 
@@ -10,56 +10,56 @@ DATASET_ID="${3:-gemini_enterprise_telemetry}"
 SINK_NAME="${4:-gemini-enterprise-telemetry-sink}"
 
 echo "======================================================================"
-echo "Configuring Gemini Enterprise Telemetry Pipeline"
-echo "  Project ID:   ${PROJECT_ID}"
-echo "  Location:     ${LOCATION}"
-echo "  Dataset ID:   ${DATASET_ID}"
-echo "  Sink Name:    ${SINK_NAME}"
+echo "Konfiguracja potoku telemetrii Gemini Enterprise"
+echo "  Projekt:      ${PROJECT_ID}"
+echo "  Lokalizacja:  ${LOCATION}"
+echo "  Zbiór danych: ${DATASET_ID}"
+echo "  Nazwa zlewu:  ${SINK_NAME}"
 echo "======================================================================"
 
-# 1. Create BigQuery Dataset if it doesn't already exist
-echo "--> Checking/Creating BigQuery Dataset '${DATASET_ID}' in location '${LOCATION}'..."
+# 1. Utworzenie zbioru BigQuery, jeśli jeszcze nie istnieje
+echo "--> Sprawdzanie / tworzenie zbioru danych BigQuery '${DATASET_ID}' w lokalizacji '${LOCATION}'..."
 if ! bq show --project_id="${PROJECT_ID}" "${DATASET_ID}" >/dev/null 2>&1; then
   bq --location="${LOCATION}" --project_id="${PROJECT_ID}" mk \
     --dataset \
-    --description="Gemini Enterprise adoption telemetry, inference operations, and audit logs" \
+    --description="Telemetria adopcji Gemini Enterprise, operacje wnioskowania i logi audytowe" \
     "${DATASET_ID}"
-  echo "    Successfully created dataset '${DATASET_ID}'."
+  echo "    Pomyślnie utworzono zbiór danych '${DATASET_ID}'."
 else
-  echo "    Dataset '${DATASET_ID}' already exists."
+  echo "    Zbiór danych '${DATASET_ID}' już istnieje."
 fi
 
-# 2. Define the Logging Filter
-# Filters:
-# - Gemini Enterprise User Activity logs (queries, deep research, sessions)
-# - Inference Operation Details (token usage: input, output, cache read, latencies)
-# - Cloud Audit Activity & Data Access (agent creation, modifications, permissions)
+# 2. Definicja filtra Cloud Logging
+# Filtry:
+# - Logi aktywności użytkowników Gemini Enterprise (zapytania, deep research, sesje)
+# - Szczegóły operacji wnioskowania (zużycie tokenów: prompt, response, cache, opóźnienia)
+# - Działania Cloud Audit i dostęp do danych (tworzenie i modyfikacja agentów, uprawnienia)
 LOG_FILTER='(resource.type="discoveryengine.googleapis.com/Agent" OR resource.type="consumed_api" OR resource.type="audited_resource" OR protoPayload.serviceName="discoveryengine.googleapis.com") AND (logName=~"discoveryengine.googleapis.com" OR logName=~"cloudaudit.googleapis.com")'
 
-# 3. Create or Update Cloud Logging Sink
+# 3. Utworzenie lub aktualizacja zlewu Cloud Logging
 DESTINATION="bigquery.googleapis.com/projects/${PROJECT_ID}/datasets/${DATASET_ID}"
-echo "--> Checking/Creating Cloud Logging Sink '${SINK_NAME}'..."
+echo "--> Sprawdzanie / tworzenie zlewu Cloud Logging '${SINK_NAME}'..."
 
 if gcloud logging sinks describe "${SINK_NAME}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
-  echo "    Updating existing sink '${SINK_NAME}'..."
+  echo "    Aktualizacja istniejącego zlewu '${SINK_NAME}'..."
   gcloud logging sinks update "${SINK_NAME}" "${DESTINATION}" \
     --project="${PROJECT_ID}" \
     --log-filter="${LOG_FILTER}" \
     --use-partitioned-tables
 else
-  echo "    Creating new sink '${SINK_NAME}'..."
+  echo "    Tworzenie nowego zlewu '${SINK_NAME}'..."
   gcloud logging sinks create "${SINK_NAME}" "${DESTINATION}" \
     --project="${PROJECT_ID}" \
     --log-filter="${LOG_FILTER}" \
     --use-partitioned-tables
 fi
 
-# 4. Grant BigQuery Data Editor to Sink Writer Identity
-echo "--> Fetching Sink Writer Identity..."
+# 4. Nadanie roli BigQuery Data Editor dla tożsamości zlewu logów
+echo "--> Pobieranie tożsamości serwisowej zlewu (Writer Identity)..."
 WRITER_IDENTITY=$(gcloud logging sinks describe "${SINK_NAME}" --project="${PROJECT_ID}" --format='value(writerIdentity)')
-echo "    Writer Identity: ${WRITER_IDENTITY}"
+echo "    Tożsamość serwisowa: ${WRITER_IDENTITY}"
 
-echo "--> Granting BigQuery Data Editor role to sink service account..."
+echo "--> Nadawanie roli BigQuery Data Editor dla konta serwisowego zlewu..."
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --member="${WRITER_IDENTITY}" \
   --role="roles/bigquery.dataEditor" \
@@ -67,7 +67,7 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --quiet >/dev/null
 
 echo "======================================================================"
-echo "✔ BigQuery Logging Sink successfully configured!"
-echo "  Destination: ${DESTINATION}"
-echo "  Writer:      ${WRITER_IDENTITY}"
+echo "✔ Zlew logów BigQuery został pomyślnie skonfigurowany!"
+echo "  Miejsce docelowe: ${DESTINATION}"
+echo "  Konto serwisowe:  ${WRITER_IDENTITY}"
 echo "======================================================================"

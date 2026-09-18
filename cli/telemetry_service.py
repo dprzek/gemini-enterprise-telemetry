@@ -414,26 +414,26 @@ class TelemetryService:
         total_tokens = sum(u["total_tokens"] for u in users)
 
         md = []
-        md.append(f"# Gemini Enterprise Adoption & Observability Telemetry Report")
-        md.append(f"*Project*: `{self.project_id}` | *Generated*: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}\n")
+        md.append(f"# Raport Telemetrii, Adopcji i Obserwowalności Gemini Enterprise")
+        md.append(f"*Projekt*: `{self.project_id}` | *Wygenerowano*: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}\n")
 
-        md.append("## 1. Executive Summary")
-        md.append(f"- **Tracked Users**: {total_users}")
-        md.append(f"- **Total Assistant Queries**: {total_queries}")
-        md.append(f"- **Deep Research Queries**: {total_deep_research}")
-        md.append(f"- **Agents Created / Modified**: {total_agents}")
-        md.append(f"- **Total Tokens Consumed**: {total_tokens:,}")
-        md.append(f"- **Conversational Depth (Turns/Session)**: {obs_metrics['conversational_depth_turns_per_session']}")
-        md.append(f"- **Tool Adoption Rate**: {obs_metrics['tool_adoption_rate_pct']}%")
-        md.append(f"- **Time-to-First-Token (TTFT)**: {obs_metrics['avg_time_to_first_token_ms'] or 'N/A'} ms")
+        md.append("## 1. Podsumowanie Wykonawcze")
+        md.append(f"- **Monitorowani Użytkownicy**: {total_users}")
+        md.append(f"- **Łączna Liczba Zapytań Asystenta**: {total_queries}")
+        md.append(f"- **Zapytania Deep Research**: {total_deep_research}")
+        md.append(f"- **Utworzone / Zmodyfikowane Agenty**: {total_agents}")
+        md.append(f"- **Łączna Liczba Zużytych Tokenów**: {total_tokens:,}")
+        md.append(f"- **Głębokość Konwersacji (Tury/Sesję)**: {obs_metrics['conversational_depth_turns_per_session']}")
+        md.append(f"- **Wskaźnik Adopcji Narzędzi**: {obs_metrics['tool_adoption_rate_pct']}%")
+        md.append(f"- **Czas do Pierwszego Tokena (TTFT)**: {obs_metrics['avg_time_to_first_token_ms'] or 'Brak danych'} ms")
         md.append("")
 
-        md.append("## 2. Per-User Summary (Aggregated)")
-        md.append("| User Identifier | Active Days | Total Events | Assistant Queries | Deep Research | Agents Created | Tokens Burned | First Active | Last Active |")
+        md.append("## 2. Podsumowanie per Użytkownik (Zagregowane)")
+        md.append("| Identyfikator Użytkownika | Aktywne Dni | Zdarzenia | Zapytania Asystenta | Deep Research | Utworzone Agenty | Zużyte Tokeny | Pierwsza Aktywność | Ostatnia Aktywność |")
         md.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
         for u in users:
-            first_seen = u["first_active"][:10] if u["first_active"] else "N/A"
-            last_seen = u["last_active"][:10] if u["last_active"] else "N/A"
+            first_seen = u["first_active"][:10] if u["first_active"] else "Brak danych"
+            last_seen = u["last_active"][:10] if u["last_active"] else "Brak danych"
             md.append(f"| `{u['user_id']}` | {u['active_days']} | {u['total_events']} | {u['assistant_queries']} | {u['deep_research_count']} | {u['agents_created']} | {u['total_tokens']:,} | {first_seen} | {last_seen} |")
         md.append("")
 
@@ -444,40 +444,40 @@ class TelemetryService:
             md.append(f"| {d['activity_date']} | `{d['user_id']}` | {d['total_events']} | {d['assistant_queries']} | {d['deep_research_count']} | {d['agents_created']} | {d['total_tokens']:,} |")
         md.append("")
 
-        md.append("## 4. Observability & Operational Metrics")
-        md.append(f"- **Observability Enabled**: {obs_metrics['observability_settings']['observability_enabled']}")
-        md.append(f"- **Sensitive Logging Enabled**: {obs_metrics['observability_settings']['sensitive_logging_enabled']}")
-        md.append(f"- **Total Agent Sessions**: {obs_metrics['total_agent_sessions']}")
-        md.append(f"- **Total Conversational Turns**: {obs_metrics['total_agent_turns']}")
-        md.append(f"- **Conversational Depth**: {obs_metrics['conversational_depth_turns_per_session']} turns / session")
-        md.append(f"- **Avg Time to First Token (TTFT)**: {obs_metrics['avg_time_to_first_token_ms']} ms")
-        md.append(f"- **Avg Total Latency**: {obs_metrics['avg_request_total_latency_ms']} ms")
+        md.append("## 4. Metryki Obserwowalności i Działania Platformy")
+        md.append(f"- **Obserwowalność Włączona**: {obs_metrics['observability_settings']['observability_enabled']}")
+        md.append(f"- **Wrażliwe Logowanie Włączone**: {obs_metrics['observability_settings']['sensitive_logging_enabled']}")
+        md.append(f"- **Łączna Liczba Sesji Agenta**: {obs_metrics['total_agent_sessions']}")
+        md.append(f"- **Łączna Liczba Tur Konwersacyjnych**: {obs_metrics['total_agent_turns']}")
+        md.append(f"- **Głębokość Konwersacji**: {obs_metrics['conversational_depth_turns_per_session']} tury / sesję")
+        md.append(f"- **Średni Czas do Pierwszego Tokena (TTFT)**: {obs_metrics['avg_time_to_first_token_ms']} ms")
+        md.append(f"- **Średni Całkowity Czas Odpowiedzi**: {obs_metrics['avg_request_total_latency_ms']} ms")
         md.append("")
 
         if traces:
-            md.append("### Recent OpenTelemetry Distributed Traces (Cloud Trace)")
-            md.append("| Timestamp (UTC) | Trace ID | Span ID | User ID | Method | State |")
+            md.append("### Ostatnie Rozproszone Ślady OpenTelemetry (Cloud Trace)")
+            md.append("| Czas (UTC) | Identyfikator Śladu (Trace ID) | Span ID | Użytkownik | Metoda | Status |")
             md.append("| :--- | :--- | :--- | :--- | :--- | :--- |")
             for t in traces:
                 md.append(f"| {t['timestamp'][:19]} | `{t['trace_id']}` | `{t['span_id']}` | `{t['user_id']}` | `{t['method_name']}` | `{t['answer_state']}` |")
             md.append("")
 
-        md.append("## 5. Daily Adoption Trend (Recent Days)")
-        md.append("| Date | Active Users | Total Interactions | Assistant Queries | Deep Research | Agents Created |")
+        md.append("## 5. Trendy Dziennej Adopcji Organizacji (Ostatnie Dni)")
+        md.append("| Data | Aktywni Użytkownicy (DAU) | Łączne Interakcje | Zapytania Asystenta | Deep Research | Utworzone Agenty |")
         md.append("| :--- | :--- | :--- | :--- | :--- | :--- |")
         for d in adoption[:7]:
             md.append(f"| {d['activity_date']} | {d['daily_active_users']} | {d['total_interactions']} | {d['total_assistant_queries']} | {d['total_deep_research_queries']} | {d['total_agents_created']} |")
         md.append("")
 
-        md.append("## 6. Quota Enforcement & Reset Schedules")
-        md.append("All quotas pool across organization licenses according to [Gemini Enterprise Quotas](https://docs.cloud.google.com/gemini/enterprise/docs/quotas-and-overages):")
-        md.append("- **Assistant Queries**: 160 (Standard) / 200 (Plus) queries per user/day. Resets midnight PT.")
-        md.append("- **Agent Building**: 1 (Standard) / 10 (Plus) creations per user/day. Resets midnight PT.")
-        md.append("- **Deep Research**: 3 (Standard) / 10 (Plus) queries per user/day. Resets midnight PT.")
-        md.append("- **Image Generation**: 5 (Standard) / 10 (Plus) generations per user/day. Resets midnight PT.")
-        md.append("- **Video Generation**: 2 (Standard) / 3 (Plus) generations per user/day. Resets midnight PT.")
-        md.append("- **AI Developer Tools**: $10 (Standard) / $15 (Plus) per user / 7-day rolling window.")
-        md.append("- **Data Storage & Indexing**: 30 GiB (Standard) / 75 GiB (Plus) per user pooled.")
+        md.append("## 6. Egzekwowanie Limitów Kwotowych i Harmonogramy Resetowania")
+        md.append("Wszystkie limity kwotowe są łączone w pule organizacyjne zgodnie z [Dokumentacją Kwot Gemini Enterprise](https://docs.cloud.google.com/gemini/enterprise/docs/quotas-and-overages):")
+        md.append("- **Zapytania Asystenta**: 160 (Standard) / 200 (Plus) na użytkownika/dzień. Reset o północy PT.")
+        md.append("- **Tworzenie Agentów**: 1 (Standard) / 10 (Plus) na użytkownika/dzień. Reset o północy PT.")
+        md.append("- **Deep Research**: 3 (Standard) / 10 (Plus) na użytkownika/dzień. Reset o północy PT.")
+        md.append("- **Generowanie Obrazów**: 5 (Standard) / 10 (Plus) na użytkownika/dzień. Reset o północy PT.")
+        md.append("- **Generowanie Wideo**: 2 (Standard) / 3 (Plus) na użytkownika/dzień. Reset o północy PT.")
+        md.append("- **Narzędzia AI Developer (WTU)**: $10 (Standard) / $15 (Plus) na użytkownika w kroczącym oknie 7-dniowym.")
+        md.append("- **Przestrzeń Dyskowa i Indeksowanie**: 30 GiB (Standard) / 75 GiB (Plus) na użytkownika w puli regionalnej.")
         md.append("")
 
         return "\n".join(md)

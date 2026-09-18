@@ -1,23 +1,23 @@
 variable "project_id" {
-  description = "The Google Cloud Project ID"
+  description = "Identyfikator projektu Google Cloud"
   type        = string
   default     = "adk-dev-485808"
 }
 
 variable "region" {
-  description = "The Google Cloud location/region for Gemini Enterprise and BigQuery"
+  description = "Lokalizacja Google Cloud dla Gemini Enterprise i BigQuery"
   type        = string
   default     = "EU"
 }
 
 variable "dataset_id" {
-  description = "The BigQuery dataset ID for Gemini Enterprise telemetry"
+  description = "Identyfikator zbioru danych BigQuery dla telemetrii Gemini Enterprise"
   type        = string
   default     = "gemini_enterprise_telemetry"
 }
 
 variable "sink_name" {
-  description = "The Cloud Logging Sink name"
+  description = "Nazwa zlewu Cloud Logging (Sink)"
   type        = string
   default     = "gemini-enterprise-telemetry-sink"
 }

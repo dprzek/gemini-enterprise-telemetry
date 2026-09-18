@@ -1,13 +1,13 @@
 -- ==============================================================================
--- Gemini Enterprise Telemetry & Observability Analytical Views
--- Automatically unifies real-time Cloud Logging Sink tables and backfilled logs.
--- Includes OpenTelemetry Traces, Spans, User Events, and Latencies.
+-- Widoki Analityczne Telemetrii i Obserwowalności Gemini Enterprise
+-- Automatycznie unifikuje tabele zlewu Cloud Logging w czasie rzeczywistym i logi historyczne.
+-- Obejmuje ślady i spany OpenTelemetry, zdarzenia użytkowników, opóźnienia i tokeny.
 -- ==============================================================================
 
--- 1. Unified Daily User Activity View (Day-by-Day Granularity)
+-- 1. Zunifikowany widok dziennej aktywności użytkowników (rozbicie dzień po dniu)
 CREATE OR REPLACE VIEW `adk-dev-485808.gemini_enterprise_telemetry.v_user_daily_utilization` AS
 WITH raw_user_events AS (
-  -- Streamed user activity from Cloud Logging Sink
+  -- Strumień aktywności użytkowników ze zlewu Cloud Logging (czas rzeczywisty)
   SELECT
     DATE(timestamp) AS activity_date,
     timestamp,
@@ -151,11 +151,11 @@ FULL OUTER JOIN aggregated_tokens t
   ON COALESCE(u.user_id, a.user_id) = t.user_id 
   AND COALESCE(u.activity_date, a.activity_date) = t.activity_date;
 
--- 2. Backward Compatible View (Alias to v_user_daily_utilization)
+-- 2. Widok wstecznej kompatybilności (alias dla v_user_daily_utilization)
 CREATE OR REPLACE VIEW `adk-dev-485808.gemini_enterprise_telemetry.v_user_utilization` AS
 SELECT * FROM `adk-dev-485808.gemini_enterprise_telemetry.v_user_daily_utilization`;
 
--- 3. Per-User Summary View (All-Time Aggregated per User)
+-- 3. Zbiorcze podsumowanie per użytkownik (statystyki łączone od początku rejestracji)
 CREATE OR REPLACE VIEW `adk-dev-485808.gemini_enterprise_telemetry.v_user_summary` AS
 SELECT
   user_id,
@@ -173,7 +173,7 @@ FROM `adk-dev-485808.gemini_enterprise_telemetry.v_user_daily_utilization`
 GROUP BY user_id
 ORDER BY total_events DESC, assistant_queries DESC;
 
--- 4. Organization Daily Adoption View
+-- 4. Widok dziennych trendów adopcji organizacji (DAU, interakcje, zapytania)
 CREATE OR REPLACE VIEW `adk-dev-485808.gemini_enterprise_telemetry.v_daily_adoption` AS
 SELECT
   activity_date,
@@ -187,7 +187,7 @@ FROM `adk-dev-485808.gemini_enterprise_telemetry.v_user_daily_utilization`
 GROUP BY activity_date
 ORDER BY activity_date DESC;
 
--- 5. Feature Usage Breakdown View
+-- 5. Widok podziału wykorzystania poszczególnych modułów i funkcji
 CREATE OR REPLACE VIEW `adk-dev-485808.gemini_enterprise_telemetry.v_feature_usage` AS
 SELECT
   feature_name,
@@ -227,7 +227,7 @@ FROM (
 GROUP BY feature_name
 ORDER BY total_calls DESC;
 
--- 6. OpenTelemetry Distributed Traces & Spans View
+-- 6. Widok rozproszonych śladów i spanów OpenTelemetry (Cloud Trace)
 CREATE OR REPLACE VIEW `adk-dev-485808.gemini_enterprise_telemetry.v_observability_traces` AS
 SELECT
   timestamp,
