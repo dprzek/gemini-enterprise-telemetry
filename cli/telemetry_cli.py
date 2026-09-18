@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Command Line Interface for Gemini Enterprise Admins.
-Enables querying adoption metrics and per-user utilization over precise time spans.
+Enables querying adoption metrics and per-user utilization over precise time spans
+with full day-by-day breakdown.
 """
 
 import os
@@ -22,6 +23,7 @@ def main():
     p_user.add_argument("--user", help="Filter by specific user email / identifier")
     p_user.add_argument("--from-date", dest="from_date", help="Start date (YYYY-MM-DD)")
     p_user.add_argument("--to-date", dest="to_date", help="End date (YYYY-MM-DD)")
+    p_user.add_argument("--daily", action="store_true", help="Display day-by-day activity breakdown for users")
     p_user.add_argument("--format", choices=["table", "json"], default="table")
 
     # 2. Daily Adoption Command
@@ -38,7 +40,7 @@ def main():
     p_quota.add_argument("--format", choices=["table", "json"], default="table")
 
     # 5. Digest / Report Export
-    p_rep = subparsers.add_parser("report", help="Generate full markdown adoption report")
+    p_rep = subparsers.add_parser("report", help="Generate full markdown adoption report with day-by-day table")
     p_rep.add_argument("--output", help="Optional output file path")
     p_rep.add_argument("--days", type=int, default=14)
 
@@ -46,18 +48,33 @@ def main():
     service = TelemetryService(project_id=args.project, dataset_id=args.dataset)
 
     if args.command == "utilization":
-        results = service.get_user_utilization(start_date=args.from_date, end_date=args.to_date, user_id=args.user)
-        if args.format == "json":
-            print(json.dumps(results, indent=2))
+        if args.daily:
+            results = service.get_user_daily_breakdown(start_date=args.from_date, end_date=args.to_date, user_id=args.user)
+            if args.format == "json":
+                print(json.dumps(results, indent=2))
+            else:
+                if not results:
+                    print("No daily activity records found for the specified criteria.")
+                    return
+                print(f"\n=== Day-by-Day User Utilization Report ({len(results)} daily entries) ===")
+                print(f"{'Date':<12} | {'User ID':<28} | {'Events':<7} | {'Queries':<8} | {'Deep Rsrch':<10} | {'Agents':<7} | {'Tokens':<10}")
+                print("-" * 94)
+                for r in results:
+                    print(f"{r['activity_date']:<12} | {r['user_id']:<28} | {r['total_events']:<7} | {r['assistant_queries']:<8} | {r['deep_research_count']:<10} | {r['agents_created']:<7} | {r['total_tokens']:<10,}")
         else:
-            if not results:
-                print("No utilization records found for the specified criteria.")
-                return
-            print(f"\n=== User Utilization Report ({len(results)} users) ===")
-            print(f"{'User ID':<30} | {'Active Days':<11} | {'Queries':<8} | {'Deep Rsrch':<10} | {'Agents':<7} | {'Tokens':<10}")
-            print("-" * 88)
-            for r in results:
-                print(f"{r['user_id']:<30} | {r['active_days']:<11} | {r['assistant_queries']:<8} | {r['deep_research_count']:<10} | {r['agents_created']:<7} | {r['total_tokens']:<10,}")
+            results = service.get_user_summary(start_date=args.from_date, end_date=args.to_date, user_id=args.user)
+            if args.format == "json":
+                print(json.dumps(results, indent=2))
+            else:
+                if not results:
+                    print("No utilization records found for the specified criteria.")
+                    return
+                print(f"\n=== User Utilization Summary ({len(results)} users) ===")
+                print(f"{'User ID':<28} | {'Active Days':<11} | {'Events':<7} | {'Queries':<8} | {'Deep Rsrch':<10} | {'Agents':<7} | {'Tokens':<10}")
+                print("-" * 94)
+                for r in results:
+                    print(f"{r['user_id']:<28} | {r['active_days']:<11} | {r['total_events']:<7} | {r['assistant_queries']:<8} | {r['deep_research_count']:<10} | {r['agents_created']:<7} | {r['total_tokens']:<10,}")
+                print("\nTip: Add '--daily' to view day-by-day activity for each user.")
 
     elif args.command == "adoption":
         results = service.get_daily_adoption(days=args.days)

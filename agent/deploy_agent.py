@@ -2,6 +2,7 @@
 """
 Deploy the Gemini Enterprise Telemetry & Adoption Agent to Discovery Engine.
 Deploys to the specified engine and assistant (default: rossmann-agent-designer in eu).
+Grounds the agent with real-time BigQuery metrics including DAY-BY-DAY user activity.
 """
 
 import sys
@@ -21,40 +22,45 @@ ENGINE_ID = os.environ.get("GEMINI_ENGINE_ID", "rossmann-agent-designer_17841946
 ASSISTANT_ID = os.environ.get("GEMINI_ASSISTANT_ID", "default_assistant")
 
 print("======================================================================")
-print("Deploying Gemini Enterprise Telemetry & Adoption Agent")
+print("Deploying Gemini Enterprise Telemetry & Adoption Agent (with Daily Breakdown)")
 print(f"  Project ID:   {PROJECT_ID}")
 print(f"  Location:     {LOCATION}")
 print(f"  Engine ID:    {ENGINE_ID}")
 print(f"  Assistant ID: {ASSISTANT_ID}")
 print("======================================================================")
 
-# 1. Fetch current telemetry digest to embed fresh telemetry context
-print("--> Fetching current telemetry metrics from BigQuery & Monitoring...")
+# 1. Fetch current telemetry data from BigQuery & Monitoring
+print("--> Fetching live telemetry metrics from BigQuery & Monitoring...")
 service = TelemetryService(project_id=PROJECT_ID)
-users = service.get_user_utilization()
+users_summary = service.get_user_summary()
+users_daily = service.get_user_daily_breakdown()
 adoption = service.get_daily_adoption(days=14)
 quotas = service.get_realtime_quotas()
 
-telemetry_summary = {
-    "total_tracked_users": len(users),
-    "users": users,
-    "recent_daily_adoption": adoption[:7],
+telemetry_data = {
+    "total_tracked_users": len(users_summary),
+    "user_summary_all_time": users_summary,
+    "user_daily_activity_breakdown": users_daily,
+    "organization_daily_adoption": adoption[:10],
     "quotas": quotas
 }
 
 instruction_text = f"""
 Jesteś Ekspertem ds. Telemetrii i Adopcji Gemini Enterprise (Gemini Enterprise Telemetry & Adoption Specialist).
-Twój cel to monitorowanie, analiza i raportowanie wskaźników adopcji, limitów kwot (quotas) oraz utylizacji per-user w zadanym przedziale czasowym dla administratorów organizacji.
+Twój cel to monitorowanie, analiza i raportowanie wskaźników adopcji, limitów kwot (quotas) oraz utylizacji per-user w zadanym przedziale czasowym (w tym w dokładnym rozbiciu na poszczególne dni) dla administratorów organizacji.
 
-### DANE TELEMETRYCZNE ORGANIZACJI (Stan Bieżący z BigQuery & Cloud Monitoring):
+### BIEŻĄCE DANE TELEMETRYCZNE Z BIGQUERY I CLOUD MONITORING:
 ```json
-{json.dumps(telemetry_summary, indent=2)}
+{json.dumps(telemetry_data, indent=2)}
 ```
 
-### TWOJE ZADANIA I KOMPETENCJE:
-1. **Analiza Utylizacji Per-User w Przedziale Czasowym**:
-   - Odpowiadaj precyzyjnie na pytania o aktywność konkretnych użytkowników (liczba zapytań, Deep Research, utworzone agenty, zużycie tokenów, liczba aktywnych dni, data pierwszej i ostatniej aktywności).
-   - Wyróżniaj najbardziej aktywnych użytkowników (Top Power Users) oraz osoby wymagające onboardingu/szkolenia.
+### TWOJE ZADANIA I REGUŁY ODPOWIADANIA:
+1. **Analiza Utylizacji Per-User w Rozbiciu na Poszczególne Dni**:
+   - Gdy użytkownik/administrator pyta o aktywność lub adopcję konkretnego użytkownika po dniach (np. "powiedz mi jak wygląda adopcja użytkownika admin@dprzek.altostrat.com po konkretnych dniach"):
+     * **ZAWSZE przedstaw tabelę rozbitą na poszczególne daty** z danymi z sekcji `user_daily_activity_breakdown`.
+     * Tabela musi zawierać kolumny: `Data (YYYY-MM-DD)`, `Liczba Zdarzeń (Events)`, `Zapytania Asystenta (Queries)`, `Deep Research`, `Utworzone Agenty`, `Zużyte Tokeny`.
+     * Pod tabelą dodaj krótkie podsumowanie trendu (np. w które dni użytkownik był najbardziej aktywny, jakie narzędzia wykorzystywał).
+     * **NIGDY nie mów, że brakuje danych dziennych** - posiadasz pełną historię każdego dnia w `user_daily_activity_breakdown`.
 
 2. **Monitorowanie Limitów Kwot (Quotas & Overages)**:
    - Zgodnie z oficjalną dokumentacją Google Cloud Gemini Enterprise (https://docs.cloud.google.com/gemini/enterprise/docs/quotas-and-overages):
@@ -68,19 +74,19 @@ Twój cel to monitorowanie, analiza i raportowanie wskaźników adopcji, limitó
 
 3. **Wskaźniki Adopcji Organizacyjnej**:
    - Raportuj DAU (Daily Active Users), WAU (Weekly Active Users) i MAU (Monthly Active Users).
-   - Analizuj trendy adopcji: dynamika wzrostu zapytań, wskaźnik wykorzystania narzędzi zaawansowanych (Deep Research, tworzenie agentów w Agent Designer).
+   - Analizuj trendy adopcji: dynamika wzrostu zapytań, wskaźnik wykorzystania narzędzi zaawansowanych.
 
 4. **Wskazówki dla Administratorów**:
-   - Gdy administrator potrzebuje niestandardowego raportu SQL, wskaż tabele i widoki w BigQuery w zbiorze `{PROJECT_ID}.gemini_enterprise_telemetry`:
-     * `v_user_utilization` - utylizacja użytkowników per dzień i okres
-     * `v_daily_adoption` - trendy adopcyjne DAU/WAU
+   - Gdy administrator potrzebuje zapytać BigQuery bezpośrednio, wskaż zbiór `{PROJECT_ID}.gemini_enterprise_telemetry`:
+     * `v_user_daily_utilization` - utylizacja per-user rozbita na poszczególne dni
+     * `v_user_summary` - zagregowane statystyki użytkowników
+     * `v_daily_adoption` - trendy adopcyjne DAU/WAU organizacji
      * `v_feature_usage` - podział na funkcjonalności
      * `v_token_telemetry` - zużycie tokenów modeli i finish reasons
-     * `v_agent_creation_audit` - historia tworzenia agentów
 
 5. **Styl Komunikacji**:
-   - Odpowiadaj profesjonalnie, czytelnie, używając tabel markdown i podsumowań punktowych.
-   - Pytania po polsku obsługuj po polsku, pytania po angielsku obsługuj po angielsku.
+   - Odpowiadaj profesjonalnie, czytelnie, używając estetycznych tabel markdown i punktorów.
+   - Pytania po polsku obsługuj po polsku, pytania po angielsku po angielsku.
 """.strip()
 
 node = {
@@ -88,7 +94,7 @@ node = {
     "displayName": "Koordynator Telemetrii i Adopcji",
     "llmAgentNode": {
         "model": "gemini-2.5-flash",
-        "description": "Ekspert ds. telemetrii Gemini Enterprise, kwot, adopcji i analizy utylizacji użytkowników.",
+        "description": "Ekspert ds. telemetrii Gemini Enterprise, kwot, adopcji i analizy utylizacji użytkowników (w tym w ujęciu dziennym).",
         "instruction": instruction_text,
         "selectedTools": {
             "tool": [
@@ -100,7 +106,7 @@ node = {
 
 agent_payload = {
     "displayName": "Gemini Enterprise Telemetry & Adoption Monitor",
-    "description": "Administrator agent providing telemetry reporting, user adoption metrics, quota monitoring, and per-user utilization tracking.",
+    "description": "Administrator agent providing telemetry reporting, user adoption metrics, quota monitoring, and detailed per-user daily utilization tracking.",
     "state": "ENABLED",
     "lowCodeAgentDefinition": {
         "nodes": [node],
@@ -108,12 +114,12 @@ agent_payload = {
         "deployedNodes": [node],
         "deployedRootAgentId": "telemetry_coordinator",
         "draftDisplayName": "Koordynator Telemetrii i Adopcji",
-        "draftDescription": "Ekspert ds. telemetrii Gemini Enterprise, kwot, adopcji i analizy utylizacji użytkowników."
+        "draftDescription": "Ekspert ds. telemetrii Gemini Enterprise, kwot, adopcji i analizy utylizacji użytkowników (w tym w ujęciu dziennym)."
     }
 }
 
 # 2. Authenticate and POST to Discovery Engine API
-print("--> Calling Discovery Engine AgentService to deploy agent...")
+print("--> Deploying agent to Discovery Engine AgentService...")
 credentials, _ = google.auth.default()
 if not credentials.valid:
     credentials.refresh(Request())

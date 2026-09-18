@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Gemini Enterprise Telemetry & Adoption Service.
-Integrates BigQuery (historical per-user utilization & adoption) and
-Cloud Monitoring (real-time pooled quotas, limit headroom, and latency).
+Integrates BigQuery (historical & real-time streamed per-user daily utilization & adoption)
+and Cloud Monitoring (real-time pooled quotas, limit headroom, and latency).
 """
 
 import os
@@ -26,10 +26,9 @@ class TelemetryService:
             self.credentials.refresh(Request())
         return self.credentials.token
 
-    def get_user_utilization(self, start_date=None, end_date=None, user_id=None):
+    def get_user_summary(self, start_date=None, end_date=None, user_id=None):
         """
-        Query per-user utilization across customizable time spans.
-        Tracks: assistant queries, deep research, agents created, and tokens.
+        Query aggregate utilization per user across customizable time spans.
         """
         where_clauses = []
         if start_date:
@@ -37,7 +36,7 @@ class TelemetryService:
         if end_date:
             where_clauses.append(f"activity_date <= '{end_date}'")
         if user_id:
-            where_clauses.append(f"LOWER(user_id) = LOWER('{user_id}')")
+            where_clauses.append(f"LOWER(user_id) LIKE LOWER('%{user_id}%')")
 
         where_stmt = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
@@ -49,12 +48,12 @@ class TelemetryService:
             SUM(assistant_queries) AS assistant_queries,
             SUM(deep_research_count) AS deep_research_count,
             SUM(agents_created) AS agents_created,
-            SUM(total_input_tokens) AS input_tokens,
-            SUM(total_output_tokens) AS output_tokens,
-            SUM(total_input_tokens + total_output_tokens) AS total_tokens,
+            SUM(input_tokens) AS input_tokens,
+            SUM(output_tokens) AS output_tokens,
+            SUM(total_tokens) AS total_tokens,
             MIN(first_seen) AS first_active,
             MAX(last_seen) AS last_active
-        FROM `{self.project_id}.{self.dataset_id}.v_user_utilization`
+        FROM `{self.project_id}.{self.dataset_id}.v_user_daily_utilization`
         {where_stmt}
         GROUP BY user_id
         ORDER BY total_events DESC, assistant_queries DESC
@@ -74,6 +73,56 @@ class TelemetryService:
                 "total_tokens": row.total_tokens,
                 "first_active": str(row.first_active) if row.first_active else None,
                 "last_active": str(row.last_active) if row.last_active else None,
+            })
+        return results
+
+    def get_user_daily_breakdown(self, start_date=None, end_date=None, user_id=None):
+        """
+        Query exact day-by-day utilization per user.
+        Answers: "pokaż mi adopcję użytkownika X rozbitą na poszczególne dni"
+        """
+        where_clauses = []
+        if start_date:
+            where_clauses.append(f"activity_date >= '{start_date}'")
+        if end_date:
+            where_clauses.append(f"activity_date <= '{end_date}'")
+        if user_id:
+            where_clauses.append(f"LOWER(user_id) LIKE LOWER('%{user_id}%')")
+
+        where_stmt = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+
+        query = f"""
+        SELECT
+            activity_date,
+            user_id,
+            total_events,
+            assistant_queries,
+            deep_research_count,
+            agents_created,
+            input_tokens,
+            output_tokens,
+            total_tokens,
+            first_seen,
+            last_seen
+        FROM `{self.project_id}.{self.dataset_id}.v_user_daily_utilization`
+        {where_stmt}
+        ORDER BY activity_date DESC, total_events DESC
+        """
+        job = self.bq_client.query(query)
+        results = []
+        for row in job.result():
+            results.append({
+                "activity_date": str(row.activity_date),
+                "user_id": row.user_id,
+                "total_events": row.total_events,
+                "assistant_queries": row.assistant_queries,
+                "deep_research_count": row.deep_research_count,
+                "agents_created": row.agents_created,
+                "input_tokens": row.input_tokens,
+                "output_tokens": row.output_tokens,
+                "total_tokens": row.total_tokens,
+                "first_seen": str(row.first_seen) if row.first_seen else None,
+                "last_seen": str(row.last_seen) if row.last_seen else None,
             })
         return results
 
@@ -146,7 +195,6 @@ class TelemetryService:
         start_str = start.strftime("%Y-%m-%dT%H:%M:%SZ")
         end_str = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        # Key quota metric types mapped to human labels
         metrics_to_check = {
             "Assistant Queries": "discoveryengine.googleapis.com/quota/text_answer_gen_tier_enterprise_regional/limit",
             "Agents Created": "discoveryengine.googleapis.com/quota/agents_tier_enterprise_regional/limit",
@@ -189,7 +237,6 @@ class TelemetryService:
                     "status": "OK"
                 }
 
-        # Reference standard quotas from Google Cloud documentation
         quotas["Quota Reset Cycle"] = {
             "Assistant, Agents, Images, Video, Deep Research": "Daily at midnight PT (Pooled)",
             "AI Developer Tools (WTU)": "Rolling 7-day pooled cycle",
@@ -200,10 +247,11 @@ class TelemetryService:
     def generate_digest_markdown(self, days=14):
         """
         Generate a comprehensive executive markdown digest suitable for
-        admins or grounding an LLM agent.
+        admins or grounding an LLM agent, including exact day-by-day tables.
         """
         adoption = self.get_daily_adoption(days=days)
-        users = self.get_user_utilization()
+        users = self.get_user_summary()
+        daily_breakdown = self.get_user_daily_breakdown()
         features = self.get_feature_breakdown()
         quotas = self.get_realtime_quotas()
 
@@ -225,23 +273,30 @@ class TelemetryService:
         md.append(f"- **Total Tokens Consumed**: {total_tokens:,}")
         md.append("")
 
-        md.append("## 2. Per-User Utilization Breakdown")
-        md.append("| User Identifier | Active Days | Queries | Deep Research | Agents Created | Tokens Burned | First Active | Last Active |")
-        md.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
+        md.append("## 2. Per-User Summary (Aggregated)")
+        md.append("| User Identifier | Active Days | Total Events | Assistant Queries | Deep Research | Agents Created | Tokens Burned | First Active | Last Active |")
+        md.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
         for u in users:
             first_seen = u["first_active"][:10] if u["first_active"] else "N/A"
             last_seen = u["last_active"][:10] if u["last_active"] else "N/A"
-            md.append(f"| `{u['user_id']}` | {u['active_days']} | {u['assistant_queries']} | {u['deep_research_count']} | {u['agents_created']} | {u['total_tokens']:,} | {first_seen} | {last_seen} |")
+            md.append(f"| `{u['user_id']}` | {u['active_days']} | {u['total_events']} | {u['assistant_queries']} | {u['deep_research_count']} | {u['agents_created']} | {u['total_tokens']:,} | {first_seen} | {last_seen} |")
         md.append("")
 
-        md.append("## 3. Daily Adoption Trend (Recent Days)")
+        md.append("## 3. Szczegółowe Rozbicie Utylizacji na Dni (Day-by-Day User Breakdown)")
+        md.append("| Data | Identyfikator Użytkownika | Zdarzenia | Zapytania Asystenta | Deep Research | Utworzone Agenty | Zużyte Tokeny |")
+        md.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
+        for d in daily_breakdown:
+            md.append(f"| {d['activity_date']} | `{d['user_id']}` | {d['total_events']} | {d['assistant_queries']} | {d['deep_research_count']} | {d['agents_created']} | {d['total_tokens']:,} |")
+        md.append("")
+
+        md.append("## 4. Daily Adoption Trend (Recent Days)")
         md.append("| Date | Active Users | Total Interactions | Assistant Queries | Deep Research | Agents Created |")
         md.append("| :--- | :--- | :--- | :--- | :--- | :--- |")
         for d in adoption[:7]:
             md.append(f"| {d['activity_date']} | {d['daily_active_users']} | {d['total_interactions']} | {d['total_assistant_queries']} | {d['total_deep_research_queries']} | {d['total_agents_created']} |")
         md.append("")
 
-        md.append("## 4. Quota Enforcement & Reset Schedules")
+        md.append("## 5. Quota Enforcement & Reset Schedules")
         md.append("All quotas pool across organization licenses according to [Gemini Enterprise Quotas](https://docs.cloud.google.com/gemini/enterprise/docs/quotas-and-overages):")
         md.append("- **Assistant Queries**: 160 (Standard) / 200 (Plus) queries per user/day. Resets midnight PT.")
         md.append("- **Agent Building**: 1 (Standard) / 10 (Plus) creations per user/day. Resets midnight PT.")
