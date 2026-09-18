@@ -33,6 +33,9 @@ print("======================================================================")
 # 1. Pobieranie bieżących danych telemetrycznych i wskaźników obserwowalności
 print("--> Pobieranie aktywności, rozbicia dziennego i metryk OpenTelemetry...")
 service = TelemetryService(project_id=PROJECT_ID, location=LOCATION, engine_id=ENGINE_ID)
+if service.engine_id != ENGINE_ID:
+    print(f"  ✔ Dopasowano identyfikator silnika: '{ENGINE_ID}' -> '{service.engine_id}'")
+    ENGINE_ID = service.engine_id
 users_summary = service.get_user_summary()
 users_daily = service.get_user_daily_breakdown()
 adoption = service.get_daily_adoption(days=14)
@@ -149,7 +152,9 @@ node = {
 agent_payload = {
     "displayName": "Gemini Enterprise Telemetry & Adoption Monitor",
     "description": "Administrator agent providing telemetry reporting, user adoption metrics, OpenTelemetry observability analysis, quota monitoring, and detailed per-user daily utilization tracking.",
-    "state": "ENABLED",
+    "sharingConfig": {
+        "scope": "ALL_USERS"
+    },
     "lowCodeAgentDefinition": {
         "nodes": [node],
         "rootAgentId": "telemetry_coordinator",

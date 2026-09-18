@@ -97,7 +97,12 @@ cd gemini-enterprise-telemetry
 ### Przykład dla środowiska w regionie UE:
 ```bash
 ./scripts/deploy_pipeline.sh adk-dev-485808 eu rossmann-agent-designer_1784194686764 gemini_enterprise_telemetry
+# lub z przyjazną nazwą aplikacji:
+./scripts/deploy_pipeline.sh dprzek-vertex eu test-app-123 gemini_enterprise_telemetry
 ```
+
+> [!TIP]
+> **Automatyczne Rozpoznawanie Nazwy Silnika**: W parametrze `<ENGINE_ID>` możesz podać przyjazną nazwę aplikacji z konsoli (np. `test-app-123`) lub pełny identyfikator zasobu z sufiksem timestampu (np. `test-app-123_1789757145270`). Skrypty oraz narzędzie CLI automatycznie dopasują właściwy identyfikator zasobu w Discovery Engine.
 
 ---
 

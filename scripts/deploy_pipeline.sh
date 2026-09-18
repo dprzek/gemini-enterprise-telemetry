@@ -16,6 +16,24 @@ export GOOGLE_CLOUD_PROJECT="${PROJECT_ID}"
 export GOOGLE_CLOUD_LOCATION="${LOCATION}"
 export GEMINI_ENGINE_ID="${ENGINE_ID}"
 
+# Automatyczne dopasowanie identyfikatora silnika (np. test-app-123 -> test-app-123_1789757145270)
+RESOLVED_ENGINE_ID=$(python3 -c "
+import sys
+sys.path.insert(0, '${ROOT_DIR}/cli')
+from telemetry_service import TelemetryService
+try:
+    svc = TelemetryService(project_id='${PROJECT_ID}', location='${LOCATION}', engine_id='${ENGINE_ID}')
+    print(svc.engine_id)
+except Exception:
+    print('${ENGINE_ID}')
+" 2>/dev/null || echo "${ENGINE_ID}")
+
+if [ -n "${RESOLVED_ENGINE_ID}" ] && [ "${RESOLVED_ENGINE_ID}" != "${ENGINE_ID}" ]; then
+  echo "--> Automatycznie dopasowano identyfikator silnika: '${ENGINE_ID}' -> '${RESOLVED_ENGINE_ID}'"
+  ENGINE_ID="${RESOLVED_ENGINE_ID}"
+  export GEMINI_ENGINE_ID="${ENGINE_ID}"
+fi
+
 echo "======================================================================"
 echo "Rozpoczęcie automatycznego wdrożenia potoku telemetrii Gemini Enterprise"
 echo "  Projekt:      ${PROJECT_ID}"
