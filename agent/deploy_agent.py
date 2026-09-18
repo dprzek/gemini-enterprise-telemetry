@@ -17,10 +17,22 @@ from google.auth.transport.requests import Request
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "cli")))
 from telemetry_service import TelemetryService
 
-PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "adk-dev-485808")
-LOCATION = os.environ.get("GOOGLE_CLOUD_LOCATION", "eu")
-ENGINE_ID = os.environ.get("GEMINI_ENGINE_ID", "rossmann-agent-designer_1784194686764")
-ASSISTANT_ID = os.environ.get("GEMINI_ASSISTANT_ID", "default_assistant")
+import argparse
+
+parser = argparse.ArgumentParser(description="Wdrożenie Agenta Telemetrii Gemini Enterprise")
+parser.add_argument("pos_project", nargs="?", default=None, help="ID Projektu GCP")
+parser.add_argument("pos_location", nargs="?", default=None, help="Lokalizacja silnika (np. eu)")
+parser.add_argument("pos_engine", nargs="?", default=None, help="ID Silnika lub nazwa aplikacji")
+parser.add_argument("--project", "-p", dest="flag_project", default=None, help="ID Projektu GCP")
+parser.add_argument("--location", "-l", dest="flag_location", default=None, help="Lokalizacja silnika (np. eu)")
+parser.add_argument("--engine", "-e", dest="flag_engine", default=None, help="ID Silnika lub nazwa aplikacji")
+parser.add_argument("--assistant", "-a", dest="flag_assistant", default=None, help="ID Asystenta")
+args, _ = parser.parse_known_args()
+
+PROJECT_ID = args.flag_project or args.pos_project or os.environ.get("GOOGLE_CLOUD_PROJECT", "adk-dev-485808")
+LOCATION = args.flag_location or args.pos_location or os.environ.get("GOOGLE_CLOUD_LOCATION", "eu")
+ENGINE_ID = args.flag_engine or args.pos_engine or os.environ.get("GEMINI_ENGINE_ID", "rossmann-agent-designer_1784194686764")
+ASSISTANT_ID = args.flag_assistant or os.environ.get("GEMINI_ASSISTANT_ID", "default_assistant")
 
 print("======================================================================")
 print("Wdrażanie Agenta Telemetrii, Adopcji i Obserwowalności Gemini Enterprise")
@@ -165,39 +177,90 @@ agent_payload = {
     }
 }
 
-# 2. Authenticate and POST to Discovery Engine API
-print("--> Deploying agent to Discovery Engine AgentService...")
+# 2. Uwierzytelnianie i wdrożenie / aktualizacja agenta w Discovery Engine AgentService
+print("--> Wdrażanie agenta w usłudze Discovery Engine AgentService...")
 credentials, _ = google.auth.default()
 if not credentials.valid:
     credentials.refresh(Request())
 token = credentials.token
 
 api_host = f"{LOCATION}-discoveryengine.googleapis.com" if LOCATION != "global" else "discoveryengine.googleapis.com"
-url = f"https://{api_host}/v1alpha/projects/{PROJECT_ID}/locations/{LOCATION}/collections/default_collection/engines/{ENGINE_ID}/assistants/{ASSISTANT_ID}/agents"
+base_url = f"https://{api_host}/v1alpha/projects/{PROJECT_ID}/locations/{LOCATION}/collections/default_collection/engines/{ENGINE_ID}/assistants/{ASSISTANT_ID}/agents"
 
-req = urllib.request.Request(
-    url,
-    data=json.dumps(agent_payload).encode("utf-8"),
-    headers={
+# Sprawdź czy agent o takiej samej nazwie już istnieje (idempotentność)
+existing_agent_id = None
+try:
+    list_req = urllib.request.Request(base_url, headers={
         "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
         "X-Goog-User-Project": PROJECT_ID
-    },
-    method="POST"
-)
+    })
+    with urllib.request.urlopen(list_req) as resp:
+        agents_data = json.load(resp)
+        for a in agents_data.get("agents", []):
+            if a.get("displayName") == agent_payload["displayName"]:
+                existing_agent_id = a.get("name", "").split("/")[-1]
+                break
+except Exception as e:
+    pass
 
 try:
-    with urllib.request.urlopen(req) as response:
-        result = json.load(response)
-        agent_name = result.get("name", "")
-        agent_id = agent_name.split("/")[-1]
-        print(f"✔ Pomyślnie utworzono i wdrożono agenta!")
-        print(f"  Nazwa Agenta: {agent_name}")
-        print(f"  ID Agenta:    {agent_id}")
-        print(f"  Status:       {result.get('state', 'UNKNOWN')}")
+    if existing_agent_id:
+        print(f"--> Znaleziono istniejącego agenta o nazwie '{agent_payload['displayName']}' (ID: {existing_agent_id}). Aktualizacja...")
+        agent_url = f"{base_url}/{existing_agent_id}?updateMask=description,lowCodeAgentDefinition,sharingConfig"
+        req = urllib.request.Request(
+            agent_url,
+            data=json.dumps(agent_payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+                "X-Goog-User-Project": PROJECT_ID
+            },
+            method="PATCH"
+        )
+        with urllib.request.urlopen(req) as response:
+            result = json.load(response)
+            agent_name = result.get("name", f"{base_url}/{existing_agent_id}")
+            agent_id = existing_agent_id
+            print(f"✔ Pomyślnie zaktualizowano konfigurację agenta!")
+    else:
+        req = urllib.request.Request(
+            base_url,
+            data=json.dumps(agent_payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+                "X-Goog-User-Project": PROJECT_ID
+            },
+            method="POST"
+        )
+        with urllib.request.urlopen(req) as response:
+            result = json.load(response)
+            agent_name = result.get("name", "")
+            agent_id = agent_name.split("/")[-1]
+            print(f"✔ Pomyślnie utworzono nowego agenta!")
+
+    # Publikacja rewizji agenta (:publish)
+    publish_url = f"{base_url}/{agent_id}:publish"
+    pub_req = urllib.request.Request(
+        publish_url,
+        data=b"{}",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "X-Goog-User-Project": PROJECT_ID
+        },
+        method="POST"
+    )
+    with urllib.request.urlopen(pub_req) as pub_resp:
+        pass
+    print(f"✔ Opublikowano aktywną rewizję agenta (:publish)!")
+    print(f"  Nazwa Agenta: {agent_name}")
+    print(f"  ID Agenta:    {agent_id}")
+    print(f"  Status:       {result.get('state', 'PRIVATE')}")
+
 except urllib.error.HTTPError as e:
     err_body = e.read().decode("utf-8")
-    print(f"Błąd tworzenia agenta: HTTP {e.code} - {err_body}")
+    print(f"Błąd wdrażania agenta: HTTP {e.code} - {err_body}")
     sys.exit(1)
 except Exception as e:
     print(f"Nieoczekiwany błąd: {e}")
