@@ -9,10 +9,12 @@ Equipped with automated BigQuery log ingestion, analytical SQL views, Cloud Moni
 ## Key Features
 
 - **Per-User Utilization Tracking (Day-by-Day)**: Measure user activity, assistant queries, deep research invocations, agent creations, and token consumption with full daily breakdowns (`--daily`) or over customizable time spans.
+- **OpenTelemetry Observability & Distributed Tracing**: Native support for Gemini Enterprise observability settings (`observabilityConfig`), distributed traces and spans in Cloud Trace (`AssistantService.StreamAssist`, `execute_tool`, `invoke_connector`), and BigQuery analytical view `v_observability_traces`.
+- **Engagement & UX Adoption Metrics**: Track Conversational Depth (turns per session), Tool Adoption Rate (% of tool-assisted sessions), and Perceived Responsiveness / Time to First Token (TTFT latency distribution).
 - **Organization-Wide Adoption Analytics**: Monitor Daily Active Users (DAU), Weekly Active Users (WAU), total prompt volume, and tool adoption trends.
 - **Quota & Overage Monitoring**: Real-time pooled quota limits and burn rate tracking (Assistant queries, Agent Builder, Deep Research, Image & Video generation, WTU AI Developer Tools credits, Storage).
-- **Conversational Telemetry Agent**: An AI agent deployed directly in Gemini Enterprise (`rossmann-agent-designer` / Agent Builder) that answers admin questions about telemetry and day-by-day user adoption in natural language.
-- **Cloud Monitoring Dashboard**: Visual charts for quota limits vs. usage, latencies, and storage metrics.
+- **Conversational Telemetry & Observability Agent**: An AI agent deployed directly in Gemini Enterprise (`rossmann-agent-designer` / Agent Builder) that initiates conversations with an **opening statement of metrics offered** and answers admin inquiries in natural language.
+- **Cloud Monitoring Dashboard**: Visual charts for quota limits vs. usage, latencies, session counts, and tool usage metrics.
 - **Customer Deployment Manual**: Complete end-to-end customer deployment runbook documented in [MANUAL.md](MANUAL.md).
 - **One-Command Automated Deployment**: Shell script (`deploy_pipeline.sh`) and Terraform module for instant deployment on any customer project.
 - **Antigravity Skill**: Reusable skill packaged under `skills/gemini-enterprise-telemetry/`.

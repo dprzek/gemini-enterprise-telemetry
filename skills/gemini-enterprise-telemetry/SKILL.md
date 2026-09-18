@@ -1,28 +1,35 @@
 ---
 name: gemini-enterprise-telemetry
 description: >-
-  Deploy, configure, and query Gemini Enterprise telemetry and user adoption monitoring.
-  Tracks per-user utilization over precise time spans, quota limits and burn rates (assistant
-  queries, agent building, deep research, image/video generation, WTU dev credits, data indexing),
-  BigQuery analytical views, Cloud Monitoring dashboards, and agent deployment to Gemini Enterprise.
+  Deploy, configure, and query Gemini Enterprise telemetry, user adoption, and OpenTelemetry observability.
+  Tracks per-user utilization with day-by-day breakdowns, OpenTelemetry traces and spans in Cloud Trace,
+  operational metrics (sessions, conversational depth, tool adoption rate, time-to-first-token TTFT),
+  pooled quota limits and burn rates (assistant queries, agent building, deep research, images/video, WTU credits),
+  BigQuery analytical views, Cloud Monitoring dashboards, and agent deployment in Gemini Enterprise.
 ---
 
-# Gemini Enterprise Telemetry & Adoption Monitoring Skill
+# Gemini Enterprise Telemetry & Observability Monitoring Skill
 
-This skill provides procedures, automation scripts, SQL views, and agent configurations to monitor and report telemetry on Google Cloud **Gemini Enterprise** usage across an organization.
+This skill provides procedures, automation scripts, SQL views, and agent configurations to monitor and report telemetry on Google Cloud **Gemini Enterprise** usage, adoption, and performance across an organization.
 
 ## Architecture & Data Flow
 
-1. **Cloud Logging & Audit Logs Sink**: Automatically captures user activity, prompt interactions, model inference tokens, and administrative actions (`CreateAgent`, `UpdateAgent`).
-2. **BigQuery Telemetry Dataset (`gemini_enterprise_telemetry`)**: Stores partitioned logs with 5 analytical SQL views:
-   - `v_user_utilization`: Per-user queries, active days, deep research, agents created, tokens.
+1. **Cloud Logging & Audit Logs Sink**: Automatically captures user activity, prompt interactions, model inference tokens, OpenTelemetry trace spans, and administrative actions (`CreateAgent`, `UpdateAgent`).
+2. **BigQuery Telemetry Dataset (`gemini_enterprise_telemetry`)**: Stores partitioned logs with 6 analytical SQL views:
+   - `v_user_daily_utilization`: Per-user queries, active days, deep research, agents created, and tokens in day-by-day granularity.
+   - `v_observability_traces`: OpenTelemetry distributed trace and span linkage (trace IDs, span IDs, methods, execution states).
+   - `v_user_summary`: All-time per-user aggregate metrics.
    - `v_daily_adoption`: Organization-wide DAU, WAU, query volume trends.
    - `v_feature_usage`: Breakdown across Gemini Enterprise features.
-   - `v_agent_creation_audit`: Users creating and modifying agents.
    - `v_token_telemetry`: Input, output, and cache token metrics.
-3. **Cloud Monitoring Integration**: Tracks real-time pooled quota limits and usage against edition thresholds (`discoveryengine.googleapis.com/quota/*`).
-4. **Gemini Enterprise Agent**: Deployed directly in the Gemini Enterprise Agent Designer to conversationally answer administrator queries.
-5. **Admin CLI**: Instant querying of utilization per user over customizable time spans.
+3. **Cloud Monitoring & OpenTelemetry Integration**:
+   - Observability settings: `observabilityConfig` (enables OpenTelemetry spans & sensitive logging).
+   - Real-time operational metrics: `agent_session_count`, `agent_turn_count` (conversational depth), `agent_session_with_tool_count` (tool adoption rate), and `engine/time_to_first_token_latency` (TTFT).
+   - Real-time pooled quota limits and usage against edition thresholds (`discoveryengine.googleapis.com/quota/*`).
+4. **Gemini Enterprise Agent**: Deployed directly in Gemini Enterprise Agent Designer (`rossmann-agent-designer` in `eu`).
+   - Initiates conversations with an **opening statement of metrics offered** (User utilization, Adoption & Engagement, Observability & Traces, Quotas).
+   - Answers queries on day-by-day adoption, user rankings, latencies, and quota burn rates.
+5. **Admin CLI**: Instant querying of day-by-day utilization (`--daily`), adoption trends, and OpenTelemetry metrics (`python3 cli/telemetry_cli.py observability --traces`).
 
 ---
 
@@ -36,6 +43,7 @@ To deploy the telemetry pipeline in any customer Google Cloud project, ensure th
 | `roles/logging.configWriter` | Create Cloud Logging sink routing logs to BigQuery |
 | `roles/bigquery.admin` | Create BigQuery dataset, tables, and views |
 | `roles/monitoring.viewer` / `roles/monitoring.editor` | Query quota metrics and deploy Cloud Monitoring dashboard |
+| `roles/cloudtrace.user` | View and inspect distributed traces in Cloud Trace |
 | `roles/resourcemanager.projectIamAdmin` | Grant BigQuery Data Editor to the sink service account |
 
 ---
@@ -53,93 +61,26 @@ Example for EU engine `rossmann-agent-designer`:
 ./scripts/deploy_pipeline.sh adk-dev-485808 eu rossmann-agent-designer_1784194686764 gemini_enterprise_telemetry
 ```
 
-### What this script automates:
-1. Provisions BigQuery dataset `gemini_enterprise_telemetry` with partitioning.
-2. Creates Cloud Logging sink `gemini-enterprise-telemetry-sink` filtering Discovery Engine and Audit logs.
-3. Grants `roles/bigquery.dataEditor` to the sink writer identity.
-4. Backfills historical logs from the past 30 days into BigQuery.
-5. Deploys the 5 SQL analytical views.
-6. Provisions the Cloud Monitoring dashboard.
-7. Deploys the Telemetry & Adoption Agent to Gemini Enterprise.
-
 ---
 
-## Step-by-Step Manual Runbook
+## Key CLI Commands
 
-### Step 1: BigQuery Logging Sink
+### 1. Observability & OpenTelemetry Metrics:
 ```bash
-./scripts/setup_bigquery_sink.sh <PROJECT_ID> <LOCATION> <DATASET_ID> <SINK_NAME>
+python3 cli/telemetry_cli.py observability --traces
 ```
 
-### Step 2: Backfill Historical Logs
+### 2. Day-by-Day User Utilization:
 ```bash
-python3 scripts/backfill_logs_to_bigquery.py <PROJECT_ID> <DATASET_ID> 30
+python3 cli/telemetry_cli.py utilization --daily --user admin@mycompany.com
 ```
 
-### Step 3: Create Analytical Views
-```bash
-sed "s/adk-dev-485808/<PROJECT_ID>/g; s/gemini_enterprise_telemetry/<DATASET_ID>/g" \
-  bigquery/telemetry_views.sql | bq query --project_id=<PROJECT_ID> --use_legacy_sql=false
-```
-
-### Step 4: Deploy Cloud Monitoring Dashboard
-```bash
-gcloud monitoring dashboards create \
-  --config-from-file=monitoring/gemini_enterprise_telemetry_dashboard.json \
-  --project=<PROJECT_ID>
-```
-
-### Step 5: Deploy the Telemetry Agent
-```bash
-GOOGLE_CLOUD_PROJECT=<PROJECT_ID> \
-GOOGLE_CLOUD_LOCATION=<LOCATION> \
-GEMINI_ENGINE_ID=<ENGINE_ID> \
-python3 agent/deploy_agent.py
-```
-
----
-
-## Querying Telemetry via CLI
-
-The included CLI provides instant answers for administrators:
-
-### 1. Per-User Utilization in Precise Time Span
-```bash
-python3 cli/telemetry_cli.py utilization --user admin@example.com --from-date 2026-09-01 --to-date 2026-09-18
-```
-
-### 2. Top Active Users Overview
-```bash
-python3 cli/telemetry_cli.py utilization
-```
-
-### 3. Daily Adoption Trends (DAU, Events, Queries)
+### 3. Organization Adoption Trends (DAU):
 ```bash
 python3 cli/telemetry_cli.py adoption --days 30
 ```
 
-### 4. Quota Limits & Reset Status
+### 4. Real-time Quotas & Headroom:
 ```bash
 python3 cli/telemetry_cli.py quotas
 ```
-
-### 5. Export Markdown Digest
-```bash
-python3 cli/telemetry_cli.py report --output /path/to/report.md
-```
-
----
-
-## Quota Limits & Reset Reference
-
-Refer to [Google Cloud Gemini Enterprise Quotas](https://docs.cloud.google.com/gemini/enterprise/docs/quotas-and-overages):
-
-| Feature | Standard Edition | Plus Edition | Reset Schedule |
-| :--- | :--- | :--- | :--- |
-| **Assistant Queries** | 160 / user / day | 200 / user / day | Daily at midnight PT (Pooled) |
-| **Agent Building** | 1 / user / day | 10 / user / day | Daily at midnight PT (Pooled) |
-| **Deep Research** | 3 / user / day | 10 / user / day | Daily at midnight PT (Pooled) |
-| **Image Generation** | 5 / user / day | 10 / user / day | Daily at midnight PT (Pooled) |
-| **Video Generation** | 2 / user / day | 3 / user / day | Daily at midnight PT (Pooled) |
-| **AI Developer Tools**| $10 / user / window | $15 / user / window | Rolling 7-day pooled window |
-| **Storage & Indexing**| 30 GiB / user | 75 GiB / user | Regional pool |
