@@ -22,6 +22,43 @@ class TelemetryService:
         self.engine_id = engine_id
         self.credentials, _ = google.auth.default()
         self.bq_client = bigquery.Client(project=self.project_id, credentials=self.credentials)
+        self.engine_id = self._resolve_engine_id()
+
+    def _resolve_engine_id(self):
+        """
+        Automatycznie dopasowuje engine_id, sprawdzając bezpośrednie dopasowanie,
+        wartość displayName lub prefiks zasobu (np. 'test-app-123' -> 'test-app-123_1789757145270').
+        """
+        if not self.engine_id:
+            return self.engine_id
+        try:
+            api_host = f"{self.location}-discoveryengine.googleapis.com" if self.location != "global" else "discoveryengine.googleapis.com"
+            token = self._get_access_token()
+            
+            # 1. Sprawdź czy engine_id działa bezpośrednio
+            direct_url = f"https://{api_host}/v1alpha/projects/{self.project_id}/locations/{self.location}/collections/default_collection/engines/{self.engine_id}"
+            req = urllib.request.Request(direct_url, headers={"Authorization": f"Bearer {token}", "X-Goog-User-Project": self.project_id})
+            try:
+                with urllib.request.urlopen(req) as resp:
+                    if resp.status == 200:
+                        return self.engine_id
+            except urllib.error.HTTPError as e:
+                if e.code != 404:
+                    return self.engine_id
+
+            # 2. Jeśli zwrócono 404, wylistuj silniki i znajdź dopasowanie po displayName lub prefiksie
+            list_url = f"https://{api_host}/v1alpha/projects/{self.project_id}/locations/{self.location}/collections/default_collection/engines"
+            req = urllib.request.Request(list_url, headers={"Authorization": f"Bearer {token}", "X-Goog-User-Project": self.project_id})
+            with urllib.request.urlopen(req) as resp:
+                data = json.load(resp)
+                for eng in data.get("engines", []):
+                    eid = eng.get("name", "").split("/")[-1]
+                    dname = eng.get("displayName", "")
+                    if dname == self.engine_id or eid == self.engine_id or eid.startswith(f"{self.engine_id}_"):
+                        return eid
+        except Exception:
+            pass
+        return self.engine_id
 
     def _get_access_token(self):
         if not self.credentials.valid:
