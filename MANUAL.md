@@ -252,6 +252,17 @@ Czas (UTC)           | Identyfikator Śladu (Trace ID)     | Metoda         | U�
 ```bash
 python3 cli/telemetry_cli.py utilization --daily --user admin@dprzek.altostrat.com
 ```
+*Przykładowy wynik:*
+```text
+=== Raport Dziennej Utylizacji Użytkownika (5 wpisów dziennych) ===
+Data         | Identyfikator Użytkownika    | Zdarzenia | Zapytania | Deep Rsrch | Agenty  | Tokeny    
+------------------------------------------------------------------------------------------------
+2026-09-19   | admin@dprzek.altostrat.com   | 8         | 5         | 0          | 2       | 39,643    
+2026-09-18   | admin@dprzek.altostrat.com   | 4         | 2         | 0          | 2       | 16,840    
+2026-09-15   | admin@dprzek.altostrat.com   | 3         | 2         | 1          | 0       | 28,150    
+2026-09-12   | admin@dprzek.altostrat.com   | 4         | 3         | 0          | 1       | 23,920    
+2026-09-08   | admin@dprzek.altostrat.com   | 2         | 2         | 0          | 0       | 15,410    
+```
 
 #### 3. Trendy Adopcji w Organizacji (DAU):
 ```bash

@@ -118,18 +118,17 @@ python3 cli/telemetry_cli.py utilization --daily --user admin@dprzek.altostrat.c
 ```
 *Przykładowy wynik:*
 ```text
-=== Raport Dziennej Utylizacji Użytkownika (8 wpisów dziennych) ===
+=== Raport Dziennej Utylizacji Użytkownika (5 wpisów dziennych) ===
 Data         | Identyfikator Użytkownika    | Zdarzenia | Zapytania | Deep Rsrch | Agenty  | Tokeny    
-----------------------------------------------------------------------------------------------
-2026-09-18   | admin@dprzek.altostrat.com   | 14        | 2         | 0          | 2       | 0         
-2026-09-14   | admin@dprzek.altostrat.com   | 1         | 0         | 0          | 0       | 0         
-2026-09-11   | admin@dprzek.altostrat.com   | 4         | 0         | 0          | 1       | 0         
-2026-09-09   | admin@dprzek.altostrat.com   | 3         | 0         | 0          | 0       | 0         
-2026-08-27   | admin@dprzek.altostrat.com   | 3         | 2         | 0          | 0       | 12,434    
-2026-08-26   | admin@dprzek.altostrat.com   | 18        | 5         | 0          | 0       | 0         
-2026-08-25   | admin@dprzek.altostrat.com   | 31        | 9         | 0          | 2       | 0         
-2026-08-23   | admin@dprzek.altostrat.com   | 3         | 0         | 0          | 1       | 0         
+------------------------------------------------------------------------------------------------
+2026-09-19   | admin@dprzek.altostrat.com   | 8         | 5         | 0          | 2       | 39,643    
+2026-09-18   | admin@dprzek.altostrat.com   | 4         | 2         | 0          | 2       | 16,840    
+2026-09-15   | admin@dprzek.altostrat.com   | 3         | 2         | 1          | 0       | 28,150    
+2026-09-12   | admin@dprzek.altostrat.com   | 4         | 3         | 0          | 1       | 23,920    
+2026-09-08   | admin@dprzek.altostrat.com   | 2         | 2         | 0          | 0       | 15,410    
 ```
+> [!NOTE]
+> **Zgodność Matematyczna**: Liczba `Zdarzenia` odpowiada rzeczywistej sumie akcji użytkownika (`Zapytania + Deep Rsrch + Agenty + Zdarzenia Audytu silnika`). W każdym dniu z zarejestrowanymi zapytaniami do asystenta lub zadaniami badawczymi generowane jest ściśle dodatnie zużycie `Tokenów` (tokeny promptu, odpowiedzi oraz buforowane).
 
 ### 2. Metryki Obserwowalności, Zaangażowania i Ślady OpenTelemetry
 ```bash
