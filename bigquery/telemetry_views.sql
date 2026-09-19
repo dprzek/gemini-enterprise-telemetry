@@ -5,10 +5,10 @@
 -- ==============================================================================
 
 -- 1. Zunifikowany widok dziennej aktywności użytkowników (rozbicie dzień po dniu)
-CREATE OR REPLACE VIEW `adk-dev-485808.gemini_enterprise_telemetry.v_user_daily_utilization` AS
+CREATE OR REPLACE VIEW `{project_id}.{dataset_id}.v_user_daily_utilization` AS
 WITH primary_user AS (
   SELECT protopayload_auditlog.authenticationInfo.principalEmail AS email
-  FROM `adk-dev-485808.gemini_enterprise_telemetry.cloudaudit_googleapis_com_activity`
+  FROM `{project_id}.{dataset_id}.cloudaudit_googleapis_com_activity`
   WHERE protopayload_auditlog.authenticationInfo.principalEmail IS NOT NULL 
     AND NOT protopayload_auditlog.authenticationInfo.principalEmail LIKE '%gserviceaccount.com'
   ORDER BY timestamp DESC
@@ -45,7 +45,7 @@ raw_user_events AS (
         ELSE 0 
       END AS is_assistant_query,
       insertId
-    FROM `adk-dev-485808.gemini_enterprise_telemetry.discoveryengine_googleapis_com_gemini_enterprise_user_activity`
+    FROM `{project_id}.{dataset_id}.discoveryengine_googleapis_com_gemini_enterprise_user_activity`
 
     UNION ALL
 
@@ -73,7 +73,7 @@ raw_user_events AS (
         ELSE 0 
       END AS is_assistant_query,
       insert_id AS insertId
-    FROM `adk-dev-485808.gemini_enterprise_telemetry.gemini_enterprise_user_activity`
+    FROM `{project_id}.{dataset_id}.gemini_enterprise_user_activity`
   )
   QUALIFY ROW_NUMBER() OVER(
     PARTITION BY COALESCE(NULLIF(insertId, ''), CONCAT(CAST(timestamp AS STRING), '_', method_name))
@@ -109,7 +109,7 @@ raw_audit AS (
       WHEN COALESCE(method_name, protopayload_auditlog.methodName, '') LIKE '%CreateAgent%' THEN 1 
       ELSE 0 
     END AS is_agent_created
-  FROM `adk-dev-485808.gemini_enterprise_telemetry.cloudaudit_googleapis_com_activity`
+  FROM `{project_id}.{dataset_id}.cloudaudit_googleapis_com_activity`
 ),
 aggregated_audit AS (
   SELECT
@@ -138,8 +138,8 @@ raw_tokens AS (
       CAST(COALESCE(inf.jsonPayload.gen_ai_usage_reasoning_output_tokens, 0) AS INT64) AS cached_tokens,
       inf.insertId,
       1 AS priority
-    FROM `adk-dev-485808.gemini_enterprise_telemetry.discoveryengine_googleapis_com_gen_ai_client_inference_operation_details` inf
-    LEFT JOIN `adk-dev-485808.gemini_enterprise_telemetry.discoveryengine_googleapis_com_gemini_enterprise_user_activity` act
+    FROM `{project_id}.{dataset_id}.discoveryengine_googleapis_com_gen_ai_client_inference_operation_details` inf
+    LEFT JOIN `{project_id}.{dataset_id}.discoveryengine_googleapis_com_gemini_enterprise_user_activity` act
       ON inf.trace = act.trace AND act.trace IS NOT NULL
 
     UNION ALL
@@ -158,7 +158,7 @@ raw_tokens AS (
       CAST(cached_tokens AS INT64) AS cached_tokens,
       insert_id AS insertId,
       0 AS priority
-    FROM `adk-dev-485808.gemini_enterprise_telemetry.gen_ai_client_inference_operation_details`
+    FROM `{project_id}.{dataset_id}.gen_ai_client_inference_operation_details`
   )
   QUALIFY ROW_NUMBER() OVER(
     PARTITION BY COALESCE(NULLIF(insertId, ''), CAST(timestamp AS STRING))
@@ -207,11 +207,11 @@ FULL OUTER JOIN aggregated_tokens t
   AND COALESCE(u.activity_date, a.activity_date) = t.activity_date;
 
 -- 2. Widok wstecznej kompatybilności (alias dla v_user_daily_utilization)
-CREATE OR REPLACE VIEW `adk-dev-485808.gemini_enterprise_telemetry.v_user_utilization` AS
-SELECT * FROM `adk-dev-485808.gemini_enterprise_telemetry.v_user_daily_utilization`;
+CREATE OR REPLACE VIEW `{project_id}.{dataset_id}.v_user_utilization` AS
+SELECT * FROM `{project_id}.{dataset_id}.v_user_daily_utilization`;
 
 -- 3. Zbiorcze podsumowanie per użytkownik (statystyki łączone od początku rejestracji)
-CREATE OR REPLACE VIEW `adk-dev-485808.gemini_enterprise_telemetry.v_user_summary` AS
+CREATE OR REPLACE VIEW `{project_id}.{dataset_id}.v_user_summary` AS
 SELECT
   user_id,
   COUNT(DISTINCT activity_date) AS active_days,
@@ -224,12 +224,12 @@ SELECT
   SUM(total_tokens) AS total_tokens,
   MIN(first_seen) AS first_active,
   MAX(last_seen) AS last_active
-FROM `adk-dev-485808.gemini_enterprise_telemetry.v_user_daily_utilization`
+FROM `{project_id}.{dataset_id}.v_user_daily_utilization`
 GROUP BY user_id
 ORDER BY total_events DESC, assistant_queries DESC;
 
 -- 4. Widok dziennych trendów adopcji organizacji (DAU, interakcje, zapytania)
-CREATE OR REPLACE VIEW `adk-dev-485808.gemini_enterprise_telemetry.v_daily_adoption` AS
+CREATE OR REPLACE VIEW `{project_id}.{dataset_id}.v_daily_adoption` AS
 SELECT
   activity_date,
   COUNT(DISTINCT user_id) AS daily_active_users,
@@ -238,12 +238,12 @@ SELECT
   SUM(deep_research_count) AS total_deep_research_queries,
   SUM(agents_created) AS total_agents_created,
   SUM(total_tokens) AS total_tokens_burned
-FROM `adk-dev-485808.gemini_enterprise_telemetry.v_user_daily_utilization`
+FROM `{project_id}.{dataset_id}.v_user_daily_utilization`
 GROUP BY activity_date
 ORDER BY activity_date DESC;
 
 -- 5. Widok podziału wykorzystania poszczególnych modułów i funkcji
-CREATE OR REPLACE VIEW `adk-dev-485808.gemini_enterprise_telemetry.v_feature_usage` AS
+CREATE OR REPLACE VIEW `{project_id}.{dataset_id}.v_feature_usage` AS
 SELECT
   feature_name,
   COUNT(*) AS total_calls,
@@ -264,7 +264,7 @@ FROM (
       jsonPayload.logmetadata.methodname,
       'General Assistant'
     ) AS feature_name
-  FROM `adk-dev-485808.gemini_enterprise_telemetry.discoveryengine_googleapis_com_gemini_enterprise_user_activity`
+  FROM `{project_id}.{dataset_id}.discoveryengine_googleapis_com_gemini_enterprise_user_activity`
   
   UNION ALL
   
@@ -277,13 +277,13 @@ FROM (
       'anonymous_user'
     ) AS user_id,
     COALESCE(NULLIF(page_type, ''), method_name, 'General Assistant') AS feature_name
-  FROM `adk-dev-485808.gemini_enterprise_telemetry.gemini_enterprise_user_activity`
+  FROM `{project_id}.{dataset_id}.gemini_enterprise_user_activity`
 )
 GROUP BY feature_name
 ORDER BY total_calls DESC;
 
 -- 6. Widok rozproszonych śladów i spanów OpenTelemetry (Cloud Trace)
-CREATE OR REPLACE VIEW `adk-dev-485808.gemini_enterprise_telemetry.v_observability_traces` AS
+CREATE OR REPLACE VIEW `{project_id}.{dataset_id}.v_observability_traces` AS
 SELECT
   timestamp,
   DATE(timestamp) AS trace_date,
@@ -302,6 +302,6 @@ SELECT
   jsonPayload.response.agentinfo.agent AS agent_resource,
   severity,
   insertId
-FROM `adk-dev-485808.gemini_enterprise_telemetry.discoveryengine_googleapis_com_gemini_enterprise_user_activity`
+FROM `{project_id}.{dataset_id}.discoveryengine_googleapis_com_gemini_enterprise_user_activity`
 WHERE trace IS NOT NULL
 ORDER BY timestamp DESC;

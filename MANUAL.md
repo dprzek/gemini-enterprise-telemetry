@@ -123,28 +123,32 @@ Konto wdrażające rozwiązanie musi posiadać następujące role IAM w projekci
 
 ---
 
-## 4. Szybkie Wdrożenie Jednym Poleceniem
+## 4. Szybkie Wdrożenie Jednym Poleceniem (Zero-Touch One-Command)
 
-Aby automatycznie uruchomić pełny potok:
+Cały potok (włączenie obserwowalności, konfiguracja BigQuery, zlew logów, uprawnienia IAM, wsteczna ingestja, widoki analityczne SQL, dashboard Cloud Monitoring oraz wdrożenie Agenta) uruchamiany jest jednym bezobsługowym poleceniem:
 
 ```bash
 # 1. Sklonuj repozytorium
 git clone https://github.com/dprzek/gemini-enterprise-telemetry.git
 cd gemini-enterprise-telemetry
 
-# 2. Uruchom skrypt instalacyjny
-./scripts/deploy_pipeline.sh <PROJECT_ID> <LOCATION> <ENGINE_ID> [DATASET_ID]
-```
+# 2. Uruchom wdrożenie (wystarczy podać nazwę aplikacji, np. test-test-test lub test-app-123)
+./deploy.sh <NAZWA_LUB_ID_APLIKACJI>
 
-### Przykład:
-```bash
-./scripts/deploy_pipeline.sh adk-dev-485808 eu rossmann-agent-designer_1784194686764 gemini_enterprise_telemetry
-# lub z przyjazną nazwą aplikacji:
-./scripts/deploy_pipeline.sh dprzek-vertex eu test-app-123 gemini_enterprise_telemetry
+# Przykład:
+./deploy.sh test-test-test
+# Lub jawnie ze wskazaniem projektu:
+./deploy.sh test-test-test --project dprzek-prod --location eu
 ```
 
 > [!TIP]
-> **Automatyczne Rozpoznawanie Nazwy Silnika**: W parametrze `<ENGINE_ID>` możesz podać przyjazną nazwę aplikacji z konsoli (np. `test-app-123`) lub pełny identyfikator zasobu z sufiksem timestampu (np. `test-app-123_1789757145270`). Skrypty instalacyjne oraz narzędzie CLI automatycznie odnajdą i dopasują identyfikator zasobu w usłudze Discovery Engine!
+> **Co automatyzuje `deploy.sh` (lub `python3 deploy.py`)?**
+> 1. **Auto-konfiguracja obserwowalności**: Automatycznie włącza `observabilityEnabled: true` oraz `sensitiveLoggingEnabled: true` na silniku — **koniec z ręcznym cURL-em czy klikaniem w konsoli!**
+> 2. **Inteligentne rozpoznawanie silnika**: Wyszukuje aplikację po przyjaznej nazwie z UI (np. `test-test-test` -> `test-test-test_1789816756559`).
+> 3. **Zlew Cloud Logging i uprawnienia**: Automatycznie zakłada zbiór danych BigQuery, zlew logów i nadaje uprawnienia `roles/bigquery.dataEditor`.
+> 4. **Wsteczna ingestja logów**: Uzupełnia historię z ostatnich 30 dni.
+> 5. **Analityka SQL i Dashboard**: Wdraża zdeduplikowane widoki SQL oraz tworzy dashboard w Cloud Monitoring.
+> 6. **Agent Telemetrii**: Tworzy i publikuje Agenta z uprawnieniami publicznymi (`ALL_USERS`).
 
 ---
 
