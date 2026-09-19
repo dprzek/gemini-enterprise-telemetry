@@ -126,17 +126,21 @@ raw_tokens AS (
   SELECT * FROM (
     -- Strumień tokenów ze zlewu Cloud Logging w czasie rzeczywistym
     SELECT
-      DATE(timestamp) AS activity_date,
-      timestamp,
+      DATE(inf.timestamp) AS activity_date,
+      inf.timestamp,
       COALESCE(
+        NULLIF(NULLIF(TRIM(act.jsonPayload.useriamprincipal), '<elided>'), ''),
         (SELECT email FROM primary_user),
         'admin@dprzek.altostrat.com'
       ) AS user_id,
-      CAST(COALESCE(jsonPayload.gen_ai_usage_input_tokens, 0) AS INT64) AS input_tokens,
-      CAST(COALESCE(jsonPayload.gen_ai_usage_output_tokens, 0) AS INT64) AS output_tokens,
-      CAST(COALESCE(jsonPayload.gen_ai_usage_reasoning_output_tokens, 0) AS INT64) AS cached_tokens,
-      insertId
-    FROM `adk-dev-485808.gemini_enterprise_telemetry.discoveryengine_googleapis_com_gen_ai_client_inference_operation_details`
+      CAST(COALESCE(inf.jsonPayload.gen_ai_usage_input_tokens, 0) AS INT64) AS input_tokens,
+      CAST(COALESCE(inf.jsonPayload.gen_ai_usage_output_tokens, 0) AS INT64) AS output_tokens,
+      CAST(COALESCE(inf.jsonPayload.gen_ai_usage_reasoning_output_tokens, 0) AS INT64) AS cached_tokens,
+      inf.insertId,
+      1 AS priority
+    FROM `adk-dev-485808.gemini_enterprise_telemetry.discoveryengine_googleapis_com_gen_ai_client_inference_operation_details` inf
+    LEFT JOIN `adk-dev-485808.gemini_enterprise_telemetry.discoveryengine_googleapis_com_gemini_enterprise_user_activity` act
+      ON inf.trace = act.trace AND act.trace IS NOT NULL
 
     UNION ALL
 
@@ -152,12 +156,13 @@ raw_tokens AS (
       CAST(input_tokens AS INT64) AS input_tokens,
       CAST(output_tokens AS INT64) AS output_tokens,
       CAST(cached_tokens AS INT64) AS cached_tokens,
-      insert_id AS insertId
+      insert_id AS insertId,
+      0 AS priority
     FROM `adk-dev-485808.gemini_enterprise_telemetry.gen_ai_client_inference_operation_details`
   )
   QUALIFY ROW_NUMBER() OVER(
     PARTITION BY COALESCE(NULLIF(insertId, ''), CAST(timestamp AS STRING))
-    ORDER BY timestamp
+    ORDER BY priority DESC, timestamp
   ) = 1
 ),
 aggregated_tokens AS (
