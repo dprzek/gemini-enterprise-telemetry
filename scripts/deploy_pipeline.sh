@@ -67,7 +67,7 @@ fi
 
 # 5. Wdrożenie Agenta Telemetrii i Obserwowalności w Gemini Enterprise
 echo -e "\n[Krok 5/5] Wdrażanie agenta telemetrii i adopcji w Gemini Enterprise..."
-python3 "${ROOT_DIR}/agent/deploy_agent.py"
+python3 "${ROOT_DIR}/agent/deploy_agent.py" --project="${PROJECT_ID}" --location="${LOCATION}" --engine="${ENGINE_ID}"
 
 echo -e "\n======================================================================"
 echo "✔ Wdrożenie zakończone pomyślnie! Potok telemetrii jest aktywny."

@@ -95,6 +95,28 @@ discovery_sink_schema = [
 ]
 ensure_table(discovery_sink_table_id, discovery_sink_schema)
 
+discovery_inference_sink_table_id = f"{PROJECT_ID}.{DATASET_ID}.discoveryengine_googleapis_com_gen_ai_client_inference_operation_details"
+discovery_inference_sink_schema = [
+    bigquery.SchemaField("logName", "STRING"),
+    bigquery.SchemaField("timestamp", "TIMESTAMP"),
+    bigquery.SchemaField("receiveTimestamp", "TIMESTAMP"),
+    bigquery.SchemaField("severity", "STRING"),
+    bigquery.SchemaField("insertId", "STRING"),
+    bigquery.SchemaField("trace", "STRING"),
+    bigquery.SchemaField("spanId", "STRING"),
+    bigquery.SchemaField("jsonPayload", "RECORD", fields=[
+        bigquery.SchemaField("gen_ai_usage_input_tokens", "FLOAT"),
+        bigquery.SchemaField("gen_ai_usage_output_tokens", "FLOAT"),
+        bigquery.SchemaField("gen_ai_usage_reasoning_output_tokens", "FLOAT"),
+        bigquery.SchemaField("gen_ai_agent_name", "STRING"),
+        bigquery.SchemaField("gen_ai_conversation_id", "STRING"),
+        bigquery.SchemaField("gcp_vertex_agent_invocation_id", "STRING"),
+        bigquery.SchemaField("gcp_vertex_agent_event_id", "STRING"),
+        bigquery.SchemaField("gen_ai_response_finish_reasons", "STRING", mode="REPEATED"),
+    ]),
+]
+ensure_table(discovery_inference_sink_table_id, discovery_inference_sink_schema)
+
 # 1. Wsteczna ingestja Cloud Audit Activity (tworzenie i modyfikacja agentów)
 print("--> Pobieranie logów Cloud Audit dla Discovery Engine / Gemini Enterprise...")
 audit_logs = fetch_logs('logName=~"cloudaudit.googleapis.com" AND protoPayload.serviceName="discoveryengine.googleapis.com"')

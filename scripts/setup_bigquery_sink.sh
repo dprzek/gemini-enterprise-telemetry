@@ -66,6 +66,22 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --condition=None \
   --quiet >/dev/null
 
+# Dodatkowe jawne nadanie uprawnień do samego zbioru BigQuery
+WRITER_SA="${WRITER_IDENTITY#serviceAccount:}"
+python3 -c "
+from google.cloud import bigquery
+try:
+    c = bigquery.Client(project='${PROJECT_ID}')
+    ds = c.get_dataset('${DATASET_ID}')
+    entries = list(ds.access_entries)
+    if not any(e.entity_id == '${WRITER_SA}' for e in entries):
+        entries.append(bigquery.AccessEntry(role='roles/bigquery.dataEditor', entity_type='userByEmail', entity_id='${WRITER_SA}'))
+        ds.access_entries = entries
+        c.update_dataset(ds, ['access_entries'])
+except Exception:
+    pass
+"
+
 echo "======================================================================"
 echo "✔ Zlew logów BigQuery został pomyślnie skonfigurowany!"
 echo "  Miejsce docelowe: ${DESTINATION}"
