@@ -81,28 +81,30 @@ Pakiet obejmuje automatyczną strumieniową i wsadową ingestję logów do BigQu
 
 ---
 
-## Szybki Start: Wdrożenie Jednym Poleceniem
+## Szybki Start: Wdrożenie Jednym Poleceniem (Zero-Touch)
 
 Aby wdrożyć cały potok telemetryczny w dowolnym projekcie Google Cloud:
 
 ```bash
-# Sklonuj repozytorium
+# 1. Sklonuj repozytorium
 git clone https://github.com/dprzek/gemini-enterprise-telemetry.git
 cd gemini-enterprise-telemetry
 
-# Uruchom automatyczne wdrożenie end-to-end
-./scripts/deploy_pipeline.sh <PROJECT_ID> <LOCATION> <ENGINE_ID> [DATASET_ID]
-```
+# 2. Uruchom automatyczne wdrożenie end-to-end
+./deploy.sh <NAZWA_LUB_ID_APLIKACJI>
 
-### Przykład dla środowiska w regionie UE:
-```bash
-./scripts/deploy_pipeline.sh adk-dev-485808 eu rossmann-agent-designer_1784194686764 gemini_enterprise_telemetry
-# lub z przyjazną nazwą aplikacji:
-./scripts/deploy_pipeline.sh dprzek-vertex eu test-app-123 gemini_enterprise_telemetry
+# Przykład:
+./deploy.sh test-test-test
+# Lub ze wskazaniem konkretnego projektu i lokalizacji:
+./deploy.sh test-test-test --project dprzek-prod --location eu
 ```
 
 > [!TIP]
-> **Automatyczne Rozpoznawanie Nazwy Silnika**: W parametrze `<ENGINE_ID>` możesz podać przyjazną nazwę aplikacji z konsoli (np. `test-app-123`) lub pełny identyfikator zasobu z sufiksem timestampu (np. `test-app-123_1789757145270`). Skrypty oraz narzędzie CLI automatycznie dopasują właściwy identyfikator zasobu w Discovery Engine.
+> **Co automatyzuje `deploy.sh` (lub `python3 deploy.py`)?**
+> - **Zero kroków manualnych**: Automatycznie włącza `observabilityConfig` na silniku bez potrzeby ręcznego wysyłania zapytań cURL czy klikania w panelu.
+> - **Automatyczne rozpoznawanie silnika**: Dopasowuje przyjazną nazwę aplikacji (np. `test-test-test`) do właściwego identyfikatora zasobu (`test-test-test_1789816756559`).
+> - **Automatyczny setup BigQuery & IAM**: Tworzy zbiór danych, zlew logów, nadaje uprawnienia `roles/bigquery.dataEditor`, przeprowadza backfill i kompiluje zdeduplikowane widoki SQL.
+> - **Wdrożenie Agenta i Dashboardu**: Tworzy dashboard operacyjny w Cloud Monitoring i publikuje Agenta Telemetrii w Gemini Enterprise.
 
 ---
 
