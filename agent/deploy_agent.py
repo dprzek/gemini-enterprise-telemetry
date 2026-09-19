@@ -176,6 +176,9 @@ agent_payload = {
     "agentInvocationSpec": {
         "invocationMode": "AUTOMATIC"
     },
+    "observabilityConfig": {
+        "observabilityEnabled": True
+    },
     "starterPrompts": starter_prompts,
     "icon": {"content": ""},
     "lowCodeAgentDefinition": {
@@ -217,7 +220,7 @@ except Exception as e:
 try:
     if existing_agent_id:
         print(f"--> Znaleziono istniejącego agenta (ID: {existing_agent_id}). Aktualizacja...")
-        agent_url = f"{base_url}/{existing_agent_id}?updateMask=displayName,description,lowCodeAgentDefinition,sharingConfig,agentInvocationSpec,starterPrompts,icon"
+        agent_url = f"{base_url}/{existing_agent_id}?updateMask=displayName,description,lowCodeAgentDefinition,sharingConfig,agentInvocationSpec,starterPrompts,icon,observabilityConfig"
         req = urllib.request.Request(
             agent_url,
             data=json.dumps(agent_payload).encode("utf-8"),
