@@ -30,9 +30,13 @@ raw_user_events AS (
     COALESCE(jsonPayload.request.userevent.eventtype, '') AS event_type,
     COALESCE(jsonPayload.request.userevent.engine, '') AS engine,
     CASE 
-      WHEN LOWER(TO_JSON_STRING(jsonPayload)) LIKE '%deep_research%' 
-        OR LOWER(TO_JSON_STRING(jsonPayload)) LIKE '%deep-research%'
-        OR jsonPayload.request.userevent.agentspaceinfo.agentspacepagetype = 'deep-research' THEN 1 
+      WHEN COALESCE(jsonPayload.request.userevent.agentspaceinfo.agentspacepagetype, '') = 'deep-research'
+        OR jsonPayload.response.agentinfo.agent LIKE '%/agents/deep_research'
+        OR EXISTS (
+          SELECT 1 
+          FROM UNNEST(COALESCE(jsonPayload.request.agentsspec.agentspecs, [])) s 
+          WHERE s.agentid = 'deep_research'
+        ) THEN 1 
       ELSE 0 
     END AS is_deep_research,
     CASE 
@@ -58,9 +62,8 @@ raw_user_events AS (
     event_type,
     engine,
     CASE 
-      WHEN LOWER(raw_payload) LIKE '%deep_research%' 
-        OR LOWER(raw_payload) LIKE '%deep-research%'
-        OR page_type = 'deep-research' THEN 1 
+      WHEN page_type = 'deep-research' 
+        OR agent_id = 'deep_research' THEN 1 
       ELSE 0 
     END AS is_deep_research,
     CASE 
