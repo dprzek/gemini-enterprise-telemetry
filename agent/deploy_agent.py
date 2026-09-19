@@ -161,19 +161,30 @@ node = {
     }
 }
 
+starter_prompts = [
+    {"text": "Pokaż raport dziennej utylizacji użytkowników"},
+    {"text": "Sprawdź stan obserwowalności i metryk zaangażowania"},
+    {"text": "Przedstaw stan limitów kwotowych (quotas) i zużycia"}
+]
+
 agent_payload = {
     "displayName": "Gemini Enterprise Telemetry & Adoption Monitor",
     "description": "Administrator agent providing telemetry reporting, user adoption metrics, OpenTelemetry observability analysis, quota monitoring, and detailed per-user daily utilization tracking.",
     "sharingConfig": {
         "scope": "ALL_USERS"
     },
+    "agentInvocationSpec": {
+        "invocationMode": "AUTOMATIC"
+    },
+    "starterPrompts": starter_prompts,
+    "icon": {"content": ""},
     "lowCodeAgentDefinition": {
         "nodes": [node],
         "rootAgentId": "telemetry_coordinator",
-        "deployedNodes": [node],
-        "deployedRootAgentId": "telemetry_coordinator",
         "draftDisplayName": "Koordynator Telemetrii i Obserwowalności",
-        "draftDescription": "Ekspert ds. telemetrii Gemini Enterprise, kwot, adopcji, śladów OpenTelemetry i analizy utylizacji użytkowników (w tym w ujęciu dziennym)."
+        "draftDescription": "Ekspert ds. telemetrii Gemini Enterprise, kwot, adopcji, śladów OpenTelemetry i analizy utylizacji użytkowników (w tym w ujęciu dziennym).",
+        "draftStarterPrompts": starter_prompts,
+        "draftIcon": {"content": ""}
     }
 }
 
@@ -206,7 +217,7 @@ except Exception as e:
 try:
     if existing_agent_id:
         print(f"--> Znaleziono istniejącego agenta o nazwie '{agent_payload['displayName']}' (ID: {existing_agent_id}). Aktualizacja...")
-        agent_url = f"{base_url}/{existing_agent_id}?updateMask=description,lowCodeAgentDefinition,sharingConfig"
+        agent_url = f"{base_url}/{existing_agent_id}?updateMask=description,lowCodeAgentDefinition,sharingConfig,agentInvocationSpec,starterPrompts,icon"
         req = urllib.request.Request(
             agent_url,
             data=json.dumps(agent_payload).encode("utf-8"),
