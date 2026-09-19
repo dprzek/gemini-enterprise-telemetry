@@ -15,70 +15,79 @@ WITH primary_user AS (
   LIMIT 1
 ),
 raw_user_events AS (
-  -- Strumień aktywności użytkowników ze zlewu Cloud Logging (czas rzeczywisty)
-  SELECT
-    DATE(timestamp) AS activity_date,
-    timestamp,
-    COALESCE(
-      NULLIF(NULLIF(TRIM(jsonPayload.useriamprincipal), '<elided>'), ''),
-      (SELECT email FROM primary_user),
-      jsonPayload.request.userevent.userpseudoid,
-      'admin@dprzek.altostrat.com'
-    ) AS user_id,
-    COALESCE(jsonPayload.logmetadata.methodname, '') AS method_name,
-    COALESCE(jsonPayload.request.userevent.agentspaceinfo.agentspacepagetype, '') AS page_type,
-    COALESCE(jsonPayload.request.userevent.eventtype, '') AS event_type,
-    COALESCE(jsonPayload.request.userevent.engine, '') AS engine,
-    CASE 
-      WHEN COALESCE(jsonPayload.request.userevent.agentspaceinfo.agentspacepagetype, '') = 'deep-research'
-        OR jsonPayload.response.agentinfo.agent LIKE '%/agents/deep_research'
-        OR EXISTS (
-          SELECT 1 
-          FROM UNNEST(COALESCE(jsonPayload.request.agentsspec.agentspecs, [])) s 
-          WHERE s.agentid = 'deep_research'
-        ) THEN 1 
-      ELSE 0 
-    END AS is_deep_research,
-    CASE 
-      WHEN jsonPayload.logmetadata.methodname IN ('StreamAssist', 'Assist') THEN 1 
-      ELSE 0 
-    END AS is_assistant_query
-  FROM `adk-dev-485808.gemini_enterprise_telemetry.discoveryengine_googleapis_com_gemini_enterprise_user_activity`
+  SELECT * FROM (
+    -- Strumień aktywności użytkowników ze zlewu Cloud Logging (czas rzeczywisty)
+    SELECT
+      DATE(timestamp) AS activity_date,
+      timestamp,
+      COALESCE(
+        NULLIF(NULLIF(TRIM(jsonPayload.useriamprincipal), '<elided>'), ''),
+        (SELECT email FROM primary_user),
+        jsonPayload.request.userevent.userpseudoid,
+        'admin@dprzek.altostrat.com'
+      ) AS user_id,
+      COALESCE(jsonPayload.logmetadata.methodname, '') AS method_name,
+      COALESCE(jsonPayload.request.userevent.agentspaceinfo.agentspacepagetype, '') AS page_type,
+      COALESCE(jsonPayload.request.userevent.eventtype, '') AS event_type,
+      COALESCE(jsonPayload.request.userevent.engine, '') AS engine,
+      CASE 
+        WHEN COALESCE(jsonPayload.request.userevent.agentspaceinfo.agentspacepagetype, '') = 'deep-research'
+          OR jsonPayload.response.agentinfo.agent LIKE '%/agents/deep_research'
+          OR EXISTS (
+            SELECT 1 
+            FROM UNNEST(COALESCE(jsonPayload.request.agentsspec.agentspecs, [])) s 
+            WHERE s.agentid = 'deep_research'
+          ) THEN 1 
+        ELSE 0 
+      END AS is_deep_research,
+      CASE 
+        WHEN jsonPayload.logmetadata.methodname IN ('StreamAssist', 'Assist') THEN 1 
+        ELSE 0 
+      END AS is_assistant_query,
+      insertId
+    FROM `adk-dev-485808.gemini_enterprise_telemetry.discoveryengine_googleapis_com_gemini_enterprise_user_activity`
 
-  UNION ALL
+    UNION ALL
 
-  -- Backfilled historical user activity
-  SELECT
-    DATE(timestamp) AS activity_date,
-    timestamp,
-    COALESCE(
-      NULLIF(NULLIF(TRIM(user_iam_principal), '<elided>'), ''),
-      (SELECT email FROM primary_user),
-      NULLIF(user_pseudo_id, ''),
-      'admin@dprzek.altostrat.com'
-    ) AS user_id,
-    method_name,
-    page_type,
-    event_type,
-    engine,
-    CASE 
-      WHEN page_type = 'deep-research' 
-        OR agent_id = 'deep_research' THEN 1 
-      ELSE 0 
-    END AS is_deep_research,
-    CASE 
-      WHEN method_name IN ('StreamAssist', 'Assist') THEN 1 
-      ELSE 0 
-    END AS is_assistant_query
-  FROM `adk-dev-485808.gemini_enterprise_telemetry.gemini_enterprise_user_activity`
+    -- Backfilled historical user activity
+    SELECT
+      DATE(timestamp) AS activity_date,
+      timestamp,
+      COALESCE(
+        NULLIF(NULLIF(TRIM(user_iam_principal), '<elided>'), ''),
+        (SELECT email FROM primary_user),
+        NULLIF(user_pseudo_id, ''),
+        'admin@dprzek.altostrat.com'
+      ) AS user_id,
+      method_name,
+      page_type,
+      event_type,
+      engine,
+      CASE 
+        WHEN page_type = 'deep-research' 
+          OR agent_id = 'deep_research' THEN 1 
+        ELSE 0 
+      END AS is_deep_research,
+      CASE 
+        WHEN method_name IN ('StreamAssist', 'Assist') THEN 1 
+        ELSE 0 
+      END AS is_assistant_query,
+      insert_id AS insertId
+    FROM `adk-dev-485808.gemini_enterprise_telemetry.gemini_enterprise_user_activity`
+  )
+  QUALIFY ROW_NUMBER() OVER(
+    PARTITION BY COALESCE(NULLIF(insertId, ''), CONCAT(CAST(timestamp AS STRING), '_', method_name))
+    ORDER BY timestamp
+  ) = 1
 ),
 aggregated_user_events AS (
   SELECT
     activity_date,
     user_id,
-    COUNT(DISTINCT timestamp) AS total_events,
+    COUNT(*) AS total_events,
     SUM(is_assistant_query) AS assistant_queries,
     SUM(is_deep_research) AS deep_research_count,
+    COUNTIF(method_name = 'CreateAgent') AS agents_created,
     MIN(timestamp) AS first_event,
     MAX(timestamp) AS last_event
   FROM raw_user_events
@@ -114,34 +123,42 @@ aggregated_audit AS (
   GROUP BY 1, 2
 ),
 raw_tokens AS (
-  -- Strumień tokenów ze zlewu Cloud Logging w czasie rzeczywistym
-  SELECT
-    DATE(timestamp) AS activity_date,
-    timestamp,
-    COALESCE(
-      (SELECT email FROM primary_user),
-      'admin@dprzek.altostrat.com'
-    ) AS user_id,
-    CAST(COALESCE(jsonPayload.gen_ai_usage_input_tokens, 0) AS INT64) AS input_tokens,
-    CAST(COALESCE(jsonPayload.gen_ai_usage_output_tokens, 0) AS INT64) AS output_tokens,
-    CAST(COALESCE(jsonPayload.gen_ai_usage_reasoning_output_tokens, 0) AS INT64) AS cached_tokens
-  FROM `adk-dev-485808.gemini_enterprise_telemetry.discoveryengine_googleapis_com_gen_ai_client_inference_operation_details`
+  SELECT * FROM (
+    -- Strumień tokenów ze zlewu Cloud Logging w czasie rzeczywistym
+    SELECT
+      DATE(timestamp) AS activity_date,
+      timestamp,
+      COALESCE(
+        (SELECT email FROM primary_user),
+        'admin@dprzek.altostrat.com'
+      ) AS user_id,
+      CAST(COALESCE(jsonPayload.gen_ai_usage_input_tokens, 0) AS INT64) AS input_tokens,
+      CAST(COALESCE(jsonPayload.gen_ai_usage_output_tokens, 0) AS INT64) AS output_tokens,
+      CAST(COALESCE(jsonPayload.gen_ai_usage_reasoning_output_tokens, 0) AS INT64) AS cached_tokens,
+      insertId
+    FROM `adk-dev-485808.gemini_enterprise_telemetry.discoveryengine_googleapis_com_gen_ai_client_inference_operation_details`
 
-  UNION ALL
+    UNION ALL
 
-  -- Historyczne tokeny z tabeli backfill
-  SELECT
-    DATE(timestamp) AS activity_date,
-    timestamp,
-    COALESCE(
-      NULLIF(NULLIF(TRIM(user_id), 'user'), ''),
-      (SELECT email FROM primary_user),
-      'admin@dprzek.altostrat.com'
-    ) AS user_id,
-    CAST(input_tokens AS INT64) AS input_tokens,
-    CAST(output_tokens AS INT64) AS output_tokens,
-    CAST(cached_tokens AS INT64) AS cached_tokens
-  FROM `adk-dev-485808.gemini_enterprise_telemetry.gen_ai_client_inference_operation_details`
+    -- Historyczne tokeny z tabeli backfill
+    SELECT
+      DATE(timestamp) AS activity_date,
+      timestamp,
+      COALESCE(
+        NULLIF(NULLIF(TRIM(user_id), 'user'), ''),
+        (SELECT email FROM primary_user),
+        'admin@dprzek.altostrat.com'
+      ) AS user_id,
+      CAST(input_tokens AS INT64) AS input_tokens,
+      CAST(output_tokens AS INT64) AS output_tokens,
+      CAST(cached_tokens AS INT64) AS cached_tokens,
+      insert_id AS insertId
+    FROM `adk-dev-485808.gemini_enterprise_telemetry.gen_ai_client_inference_operation_details`
+  )
+  QUALIFY ROW_NUMBER() OVER(
+    PARTITION BY COALESCE(NULLIF(insertId, ''), CAST(timestamp AS STRING))
+    ORDER BY timestamp
+  ) = 1
 ),
 aggregated_tokens AS (
   SELECT
@@ -159,10 +176,10 @@ aggregated_tokens AS (
 SELECT
   COALESCE(u.activity_date, a.activity_date, t.activity_date) AS activity_date,
   COALESCE(u.user_id, a.user_id, t.user_id) AS user_id,
-  COALESCE(u.total_events, 0) + COALESCE(a.audit_events, 0) AS total_events,
+  COALESCE(u.total_events, a.audit_events, 0) AS total_events,
   COALESCE(u.assistant_queries, 0) AS assistant_queries,
   COALESCE(u.deep_research_count, 0) AS deep_research_count,
-  COALESCE(a.agents_created, 0) AS agents_created,
+  GREATEST(COALESCE(u.agents_created, 0), COALESCE(a.agents_created, 0)) AS agents_created,
   COALESCE(t.input_tokens, 0) AS input_tokens,
   COALESCE(t.output_tokens, 0) AS output_tokens,
   COALESCE(t.cached_tokens, 0) AS cached_tokens,
