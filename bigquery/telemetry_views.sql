@@ -111,14 +111,33 @@ aggregated_audit AS (
   GROUP BY 1, 2
 ),
 raw_tokens AS (
-  -- Model inference tokens
+  -- Strumień tokenów ze zlewu Cloud Logging w czasie rzeczywistym
   SELECT
     DATE(timestamp) AS activity_date,
     timestamp,
-    COALESCE(NULLIF(user_id, 'user'), 'admin@dprzek.altostrat.com') AS user_id,
-    input_tokens,
-    output_tokens,
-    cached_tokens
+    COALESCE(
+      (SELECT email FROM primary_user),
+      'admin@dprzek.altostrat.com'
+    ) AS user_id,
+    CAST(COALESCE(jsonPayload.gen_ai_usage_input_tokens, 0) AS INT64) AS input_tokens,
+    CAST(COALESCE(jsonPayload.gen_ai_usage_output_tokens, 0) AS INT64) AS output_tokens,
+    CAST(COALESCE(jsonPayload.gen_ai_usage_reasoning_output_tokens, 0) AS INT64) AS cached_tokens
+  FROM `adk-dev-485808.gemini_enterprise_telemetry.discoveryengine_googleapis_com_gen_ai_client_inference_operation_details`
+
+  UNION ALL
+
+  -- Historyczne tokeny z tabeli backfill
+  SELECT
+    DATE(timestamp) AS activity_date,
+    timestamp,
+    COALESCE(
+      NULLIF(NULLIF(TRIM(user_id), 'user'), ''),
+      (SELECT email FROM primary_user),
+      'admin@dprzek.altostrat.com'
+    ) AS user_id,
+    CAST(input_tokens AS INT64) AS input_tokens,
+    CAST(output_tokens AS INT64) AS output_tokens,
+    CAST(cached_tokens AS INT64) AS cached_tokens
   FROM `adk-dev-485808.gemini_enterprise_telemetry.gen_ai_client_inference_operation_details`
 ),
 aggregated_tokens AS (
