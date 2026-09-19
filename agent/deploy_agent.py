@@ -181,15 +181,14 @@ agent_payload = {
     "lowCodeAgentDefinition": {
         "nodes": [node],
         "rootAgentId": "telemetry_coordinator",
-        "draftDisplayName": "Koordynator Telemetrii i Obserwowalności",
+        "draftDisplayName": "Gemini Enterprise Telemetry & Adoption Monitor",
         "draftDescription": "Ekspert ds. telemetrii Gemini Enterprise, kwot, adopcji, śladów OpenTelemetry i analizy utylizacji użytkowników (w tym w ujęciu dziennym).",
         "draftStarterPrompts": starter_prompts,
         "draftIcon": {"content": ""}
     }
 }
 
-# 2. Uwierzytelnianie i wdrożenie / aktualizacja agenta w Discovery Engine AgentService
-print("--> Wdrażanie agenta w usłudze Discovery Engine AgentService...")
+# 3. Pobranie tokenu OAuth2 i wywołanie AgentService REST API
 credentials, _ = google.auth.default()
 if not credentials.valid:
     credentials.refresh(Request())
@@ -208,7 +207,8 @@ try:
     with urllib.request.urlopen(list_req) as resp:
         agents_data = json.load(resp)
         for a in agents_data.get("agents", []):
-            if a.get("displayName") == agent_payload["displayName"]:
+            d_name = a.get("displayName", "")
+            if d_name in [agent_payload["displayName"], "Koordynator Telemetrii i Obserwowalności"] or "telemetry" in d_name.lower() or "8248688790907848423" in a.get("name", ""):
                 existing_agent_id = a.get("name", "").split("/")[-1]
                 break
 except Exception as e:
@@ -216,8 +216,8 @@ except Exception as e:
 
 try:
     if existing_agent_id:
-        print(f"--> Znaleziono istniejącego agenta o nazwie '{agent_payload['displayName']}' (ID: {existing_agent_id}). Aktualizacja...")
-        agent_url = f"{base_url}/{existing_agent_id}?updateMask=description,lowCodeAgentDefinition,sharingConfig,agentInvocationSpec,starterPrompts,icon"
+        print(f"--> Znaleziono istniejącego agenta (ID: {existing_agent_id}). Aktualizacja...")
+        agent_url = f"{base_url}/{existing_agent_id}?updateMask=displayName,description,lowCodeAgentDefinition,sharingConfig,agentInvocationSpec,starterPrompts,icon"
         req = urllib.request.Request(
             agent_url,
             data=json.dumps(agent_payload).encode("utf-8"),

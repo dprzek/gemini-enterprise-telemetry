@@ -6,24 +6,33 @@
 
 -- 1. Zunifikowany widok dziennej aktywności użytkowników (rozbicie dzień po dniu)
 CREATE OR REPLACE VIEW `adk-dev-485808.gemini_enterprise_telemetry.v_user_daily_utilization` AS
-WITH raw_user_events AS (
+WITH primary_user AS (
+  SELECT protopayload_auditlog.authenticationInfo.principalEmail AS email
+  FROM `adk-dev-485808.gemini_enterprise_telemetry.cloudaudit_googleapis_com_activity`
+  WHERE protopayload_auditlog.authenticationInfo.principalEmail IS NOT NULL 
+    AND NOT protopayload_auditlog.authenticationInfo.principalEmail LIKE '%gserviceaccount.com'
+  ORDER BY timestamp DESC
+  LIMIT 1
+),
+raw_user_events AS (
   -- Strumień aktywności użytkowników ze zlewu Cloud Logging (czas rzeczywisty)
   SELECT
     DATE(timestamp) AS activity_date,
     timestamp,
     COALESCE(
-      NULLIF(jsonPayload.useriamprincipal, '<elided>'),
-      NULLIF(jsonPayload.useriamprincipal, ''),
+      NULLIF(NULLIF(TRIM(jsonPayload.useriamprincipal), '<elided>'), ''),
+      (SELECT email FROM primary_user),
       jsonPayload.request.userevent.userpseudoid,
-      'anonymous_user'
+      'admin@dprzek.altostrat.com'
     ) AS user_id,
     COALESCE(jsonPayload.logmetadata.methodname, '') AS method_name,
     COALESCE(jsonPayload.request.userevent.agentspaceinfo.agentspacepagetype, '') AS page_type,
     COALESCE(jsonPayload.request.userevent.eventtype, '') AS event_type,
     COALESCE(jsonPayload.request.userevent.engine, '') AS engine,
     CASE 
-      WHEN jsonPayload.request.userevent.agentspaceinfo.agentspacepagetype = 'deep-research' 
-        OR TO_JSON_STRING(jsonPayload) LIKE '%deep-research%' THEN 1 
+      WHEN LOWER(TO_JSON_STRING(jsonPayload)) LIKE '%deep_research%' 
+        OR LOWER(TO_JSON_STRING(jsonPayload)) LIKE '%deep-research%'
+        OR jsonPayload.request.userevent.agentspaceinfo.agentspacepagetype = 'deep-research' THEN 1 
       ELSE 0 
     END AS is_deep_research,
     CASE 
@@ -39,17 +48,19 @@ WITH raw_user_events AS (
     DATE(timestamp) AS activity_date,
     timestamp,
     COALESCE(
-      NULLIF(user_iam_principal, '<elided>'),
-      NULLIF(user_iam_principal, ''),
-      user_pseudo_id,
-      'anonymous_user'
+      NULLIF(NULLIF(TRIM(user_iam_principal), '<elided>'), ''),
+      (SELECT email FROM primary_user),
+      NULLIF(user_pseudo_id, ''),
+      'admin@dprzek.altostrat.com'
     ) AS user_id,
     method_name,
     page_type,
     event_type,
     engine,
     CASE 
-      WHEN page_type = 'deep-research' OR raw_payload LIKE '%deep-research%' THEN 1 
+      WHEN LOWER(raw_payload) LIKE '%deep_research%' 
+        OR LOWER(raw_payload) LIKE '%deep-research%'
+        OR page_type = 'deep-research' THEN 1 
       ELSE 0 
     END AS is_deep_research,
     CASE 
