@@ -24,7 +24,7 @@ from google.cloud import bigquery
 # Import modułów lokalnych
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "scripts")))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "cli")))
-from backfill_logs_to_bigquery import run_backfill
+from backfill_logs_to_bigquery import run_backfill, init_streaming_tables
 from telemetry_service import TelemetryService
 
 def get_auth_token():
@@ -123,15 +123,26 @@ def ensure_required_apis(project_id):
     ]
     print("--> [1/7] Weryfikacja i aktywacja wymaganych interfejsów API Google Cloud...")
     try:
-        cmd = ["gcloud", "services", "enable", *required_apis, f"--project={project_id}", "--quiet"]
+        # Szybkie sprawdzenie już aktywnych API, by nie czekać bezczynnie
+        cmd_check = ["gcloud", "services", "list", f"--project={project_id}", "--enabled", "--format=value(config.name)"]
+        res = subprocess.run(cmd_check, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        enabled_services = set(res.stdout.split()) if res.returncode == 0 else set()
+        
+        missing = [api for api in required_apis if api not in enabled_services]
+        if not missing:
+            print("    ✔ Wszystkie wymagane API są już aktywne.")
+            return
+            
+        print(f"    Aktywacja {len(missing)} brakujących API: {', '.join(missing)} (proszę czekać)...")
+        cmd = ["gcloud", "services", "enable", *missing, f"--project={project_id}", "--quiet"]
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        print("    ✔ Wymagane API Google Cloud są aktywne.")
+        print("    ✔ Wymagane API Google Cloud zostały aktywowane.")
     except Exception as e:
         print(f"    (Weryfikacja API: {e})")
 
 def enable_engine_observability(project_id, location, engine_id, token):
     """Automatycznie włącza OpenTelemetry i logowanie promptów/odpowiedzi w silniku."""
-    print(f"--> [1/6] Konfiguracja obserwowalności silnika '{engine_id}'...")
+    print(f"--> [2/7] Konfiguracja obserwowalności silnika '{engine_id}'...")
     api_host = f"{location}-discoveryengine.googleapis.com" if location != "global" else "discoveryengine.googleapis.com"
     engine_url = f"https://{api_host}/v1alpha/projects/{project_id}/locations/{location}/collections/default_collection/engines/{engine_id}"
     
@@ -174,7 +185,7 @@ def enable_engine_observability(project_id, location, engine_id, token):
 
 def setup_bigquery_and_sink(project_id, location, dataset_id, sink_name="gemini-enterprise-telemetry-sink"):
     """Tworzy zbiór BigQuery, zlew Cloud Logging oraz nadaje uprawnienia kontu serwisowemu."""
-    print(f"--> [2/6] Konfiguracja zbioru BigQuery '{dataset_id}' i zlewu logów...")
+    print(f"--> [3/7] Konfiguracja zbioru BigQuery '{dataset_id}' i zlewu logów...")
     bq_client = bigquery.Client(project=project_id)
     
     # 1. Zbiór danych BigQuery
@@ -189,36 +200,36 @@ def setup_bigquery_and_sink(project_id, location, dataset_id, sink_name="gemini-
         dataset = bq_client.create_dataset(dataset)
         print(f"    ✔ Utworzono zbiór danych '{dataset_id}' w lokalizacji {dataset.location}.")
 
-    # 2. Zlew Cloud Logging
-    destination = f"bigquery.googleapis.com/projects/{project_id}/datasets/{dataset_id}"
-    log_filter = (
-        '(resource.type="discoveryengine.googleapis.com/Agent" OR '
-        'resource.type="consumed_api" OR '
-        'resource.type="audited_resource" OR '
-        'protoPayload.serviceName="discoveryengine.googleapis.com") AND '
-        '(logName=~"discoveryengine.googleapis.com" OR logName=~"cloudaudit.googleapis.com")'
+    # 2. Zlew Cloud Logging do BigQuery
+    sink_filter = (
+        'logName=~"cloudaudit.googleapis.com" OR '
+        'logName=~"discoveryengine.googleapis.com%2Fgemini_enterprise_user_activity" OR '
+        'logName=~"discoveryengine.googleapis.com%2Fgen_ai.client.inference.operation.details"'
     )
+    destination = f"bigquery.googleapis.com/projects/{project_id}/datasets/{dataset_id}"
     
-    desc_cmd = ["gcloud", "logging", "sinks", "describe", sink_name, f"--project={project_id}", "--format=value(writerIdentity)"]
-    res = subprocess.run(desc_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    # Sprawdzenie istnienia zlewu
+    cmd_check = ["gcloud", "logging", "sinks", "describe", sink_name, f"--project={project_id}", "--format=value(writerIdentity)"]
+    res = subprocess.run(cmd_check, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
     if res.returncode == 0 and res.stdout.strip():
         writer_identity = res.stdout.strip()
-        print(f"    Aktualizacja istniejącego zlewu '{sink_name}'...")
-        subprocess.run(["gcloud", "logging", "sinks", "update", sink_name, destination, f"--project={project_id}", f"--log-filter={log_filter}", "--use-partitioned-tables", "--quiet"], check=True)
+        print(f"    Zlew '{sink_name}' już istnieje.")
     else:
-        print(f"    Tworzenie zlewu logów '{sink_name}'...")
-        res_create = subprocess.run(["gcloud", "logging", "sinks", "create", sink_name, destination, f"--project={project_id}", f"--log-filter={log_filter}", "--use-partitioned-tables", "--format=value(writerIdentity)", "--quiet"], stdout=subprocess.PIPE, check=True, text=True)
-        writer_identity = res_create.stdout.strip()
+        cmd_create = [
+            "gcloud", "logging", "sinks", "create", sink_name, destination,
+            f"--log-filter={sink_filter}",
+            f"--project={project_id}",
+            "--use-partitioned-tables"
+        ]
+        subprocess.run(cmd_create, check=True, stdout=subprocess.PIPE)
+        res = subprocess.run(cmd_check, stdout=subprocess.PIPE, check=True, text=True)
+        writer_identity = res.stdout.strip()
+        print(f"    ✔ Utworzono zlew logów '{sink_name}'.")
 
-    # 3. Uprawnienia IAM
-    print(f"    Nadawanie uprawnień BigQuery Data Editor dla {writer_identity}...")
-    subprocess.run(["gcloud", "projects", "add-iam-policy-binding", project_id, f"--member={writer_identity}", "--role=roles/bigquery.dataEditor", "--condition=None", "--quiet"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    
-    # Dodanie do access_entries zbioru
+    # 3. Nadanie uprawnień BigQuery Data Editor dla konta serwisowego zlewu
     writer_sa = writer_identity.replace("serviceAccount:", "")
-    dataset = bq_client.get_dataset(ds_ref)
     entries = list(dataset.access_entries)
-    if not any(e.entity_id == writer_sa for e in entries):
+    if not any(getattr(e, "entity_id", None) == writer_sa for e in entries):
         entries.append(bigquery.AccessEntry(role="roles/bigquery.dataEditor", entity_type="userByEmail", entity_id=writer_sa))
         dataset.access_entries = entries
         bq_client.update_dataset(dataset, ["access_entries"])
@@ -227,7 +238,10 @@ def setup_bigquery_and_sink(project_id, location, dataset_id, sink_name="gemini-
 
 def deploy_sql_views(bq_client, project_id, dataset_id):
     """Wdraża analityczne widoki SQL w BigQuery z dynamicznym podstawieniem parametrów."""
-    print("--> [4/6] Wdrażanie analitycznych widoków SQL w BigQuery...")
+    print("--> [5/7] Wdrażanie analitycznych widoków SQL w BigQuery...")
+    # Gwarancja istnienia i spójności tabel oraz kolumn przed utworzeniem widoków
+    init_streaming_tables(bq_client, project_id, dataset_id)
+
     sql_path = os.path.join(os.path.dirname(__file__), "bigquery", "telemetry_views.sql")
     with open(sql_path, "r", encoding="utf-8") as f:
         raw_sql = f.read()
@@ -239,7 +253,7 @@ def deploy_sql_views(bq_client, project_id, dataset_id):
 
 def deploy_monitoring_dashboard(project_id):
     """Tworzy dashboard operacyjny w Cloud Monitoring, jeśli jeszcze nie istnieje."""
-    print("--> [5/6] Sprawdzanie dashboardu w Cloud Monitoring...")
+    print("--> [6/7] Sprawdzanie dashboardu w Cloud Monitoring...")
     try:
         res = subprocess.run(["gcloud", "monitoring", "dashboards", "list", f"--project={project_id}", "--format=value(displayName)"], stdout=subprocess.PIPE, text=True)
         if "Gemini Enterprise" in res.stdout:
@@ -253,7 +267,7 @@ def deploy_monitoring_dashboard(project_id):
 
 def deploy_telemetry_agent(project_id, location, engine_id, dataset_id="gemini_enterprise_telemetry", reasoning_engine=None):
     """Wdraża dynamicznego Agenta ADK w Vertex AI Agent Runtime i rejestruje w Gemini Enterprise."""
-    print("--> [6/6] Wdrażanie Agenta Telemetrii w Gemini Enterprise (Dynamic ADK Agent na Vertex AI Agent Runtime)...")
+    print("--> [7/7] Wdrażanie Agenta Telemetrii w Gemini Enterprise (Dynamic ADK Agent na Vertex AI Agent Runtime)...")
     agent_script = os.path.join(os.path.dirname(__file__), "agent", "deploy_adk_agent.py")
     cmd = [
         sys.executable, agent_script,
@@ -301,29 +315,29 @@ def main():
     print(f"  Zbiór danych: {dataset_id}")
     print("======================================================================")
 
-    # 0. Weryfikacja i aktywacja API
+    # 1. Weryfikacja i aktywacja API
     ensure_required_apis(project_id)
 
-    # 1. Obserwowalność silnika (Auto-Enable)
+    # 2. Obserwowalność silnika (Auto-Enable)
     enable_engine_observability(project_id, location, engine_id, token)
 
-    # 2. BigQuery i Zlew Cloud Logging
+    # 3. BigQuery i Zlew Cloud Logging
     bq_client = setup_bigquery_and_sink(project_id, location, dataset_id)
 
-    # 3. Wsteczna ingestja logów (Backfill)
+    # 4. Wsteczna ingestja logów (Backfill)
     if not args.skip_backfill:
-        print("--> [3/6] Wsteczna ingestja logów z ostatnich 30 dni...")
+        print("--> [4/7] Wsteczna ingestja logów z ostatnich 30 dni...")
         run_backfill(bq_client, project_id, dataset_id, days=30)
     else:
-        print("--> [3/6] Pominięto wsteczną ingestję logów (--skip-backfill).")
+        print("--> [4/7] Pominięto wsteczną ingestję logów (--skip-backfill).")
 
-    # 4. Widoki SQL
+    # 5. Widoki SQL
     deploy_sql_views(bq_client, project_id, dataset_id)
 
-    # 5. Dashboard Cloud Monitoring
+    # 6. Dashboard Cloud Monitoring
     deploy_monitoring_dashboard(project_id)
 
-    # 6. Agent Gemini Enterprise
+    # 7. Agent Gemini Enterprise
     deploy_telemetry_agent(project_id, location, engine_id, dataset_id, reasoning_engine=args.reasoning_engine)
 
     print("\n======================================================================")

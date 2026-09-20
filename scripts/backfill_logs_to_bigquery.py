@@ -18,7 +18,13 @@ def create_partitioned_table(client, table_id, schema):
     table.time_partitioning = bigquery.TimePartitioning(
         type_=bigquery.TimePartitioningType.DAY, field="timestamp"
     )
-    return client.create_table(table, exists_ok=True)
+    tbl = client.create_table(table, exists_ok=True)
+    existing_field_names = {f.name for f in tbl.schema}
+    missing_fields = [f for f in schema if f.name not in existing_field_names]
+    if missing_fields:
+        tbl.schema = list(tbl.schema) + missing_fields
+        tbl = client.update_table(tbl, ["schema"])
+    return tbl
 
 def fetch_logs(project_id, filter_str, days=30, limit=1000):
     cmd = [
@@ -45,6 +51,7 @@ def parse_activity_entry(e):
 
     return {
         "insert_id": e.get("insertId", ""),
+        "insertId": e.get("insertId", ""),
         "timestamp": e.get("timestamp"),
         "user_iam_principal": e.get("jsonPayload", {}).get("userIamPrincipal", e.get("jsonPayload", {}).get("useriamprincipal", "")),
         "user_pseudo_id": e.get("jsonPayload", {}).get("request", {}).get("userEvent", {}).get("userPseudoId", e.get("jsonPayload", {}).get("request", {}).get("userevent", {}).get("userpseudoid", "")),
@@ -60,6 +67,7 @@ def parse_inference_entry(e):
     jp = e.get("jsonPayload", {})
     return {
         "insert_id": e.get("insertId", ""),
+        "insertId": e.get("insertId", ""),
         "timestamp": e.get("timestamp"),
         "user_id": jp.get("user.id", jp.get("user_id", "")),
         "conversation_id": jp.get("gen_ai.conversation.id", jp.get("conversation_id", "")),
@@ -73,9 +81,32 @@ def parse_inference_entry(e):
         "raw_payload": json.dumps(jp)
     }
 
+def parse_audit_entry(e):
+    proto = e.get("protoPayload", {})
+    return {
+        "insert_id": e.get("insertId", ""),
+        "insertId": e.get("insertId", ""),
+        "timestamp": e.get("timestamp"),
+        "principal_email": proto.get("authenticationInfo", {}).get("principalEmail", "unknown"),
+        "method_name": proto.get("methodName", ""),
+        "resource_name": proto.get("resourceName", ""),
+        "raw_payload": json.dumps(proto),
+        "protopayload_auditlog": {
+            "methodName": proto.get("methodName", ""),
+            "resourceName": proto.get("resourceName", ""),
+            "status": {
+                "code": proto.get("status", {}).get("code", 0) if isinstance(proto.get("status"), dict) else 0,
+                "message": proto.get("status", {}).get("message", "") if isinstance(proto.get("status"), dict) else "",
+            },
+            "authenticationInfo": {
+                "principalEmail": proto.get("authenticationInfo", {}).get("principalEmail", "unknown")
+            }
+        }
+    }
+
 def init_streaming_tables(client, project_id, dataset_id):
-    """Inicjalizuje puste tabele strumieniowe zlewu logów, jeśli jeszcze nie istnieją."""
-    # 1. Tabela aktywności użytkownika
+    """Inicjalizuje puste tabele strumieniowe i wsteczne zlewu logów, jeśli jeszcze nie istnieją."""
+    # 1. Tabela aktywności użytkownika (strumień Logging)
     user_act_schema = [
         bigquery.SchemaField("logName", "STRING"),
         bigquery.SchemaField("timestamp", "TIMESTAMP"),
@@ -139,7 +170,7 @@ def init_streaming_tables(client, project_id, dataset_id):
     ]
     create_partitioned_table(client, f"{project_id}.{dataset_id}.discoveryengine_googleapis_com_gemini_enterprise_user_activity", user_act_schema)
 
-    # 2. Tabela operacji wnioskowania GenAI
+    # 2. Tabela operacji wnioskowania GenAI (strumień Logging)
     inference_schema = [
         bigquery.SchemaField("logName", "STRING"),
         bigquery.SchemaField("timestamp", "TIMESTAMP"),
@@ -161,6 +192,63 @@ def init_streaming_tables(client, project_id, dataset_id):
     ]
     create_partitioned_table(client, f"{project_id}.{dataset_id}.discoveryengine_googleapis_com_gen_ai_client_inference_operation_details", inference_schema)
 
+    # 3. Tabela zdarzeń audytowych Cloud Audit Activity
+    audit_schema = [
+        bigquery.SchemaField("insert_id", "STRING"),
+        bigquery.SchemaField("insertId", "STRING"),
+        bigquery.SchemaField("timestamp", "TIMESTAMP"),
+        bigquery.SchemaField("principal_email", "STRING"),
+        bigquery.SchemaField("method_name", "STRING"),
+        bigquery.SchemaField("resource_name", "STRING"),
+        bigquery.SchemaField("raw_payload", "STRING"),
+        bigquery.SchemaField("protopayload_auditlog", "RECORD", fields=[
+            bigquery.SchemaField("methodName", "STRING"),
+            bigquery.SchemaField("resourceName", "STRING"),
+            bigquery.SchemaField("status", "RECORD", fields=[
+                bigquery.SchemaField("code", "INTEGER"),
+                bigquery.SchemaField("message", "STRING"),
+            ]),
+            bigquery.SchemaField("authenticationInfo", "RECORD", fields=[
+                bigquery.SchemaField("principalEmail", "STRING"),
+            ]),
+        ]),
+    ]
+    create_partitioned_table(client, f"{project_id}.{dataset_id}.cloudaudit_googleapis_com_activity", audit_schema)
+
+    # 4. Tabela wstecznej aktywności użytkowników
+    backfill_user_schema = [
+        bigquery.SchemaField("insert_id", "STRING"),
+        bigquery.SchemaField("insertId", "STRING"),
+        bigquery.SchemaField("timestamp", "TIMESTAMP"),
+        bigquery.SchemaField("user_iam_principal", "STRING"),
+        bigquery.SchemaField("user_pseudo_id", "STRING"),
+        bigquery.SchemaField("method_name", "STRING"),
+        bigquery.SchemaField("engine", "STRING"),
+        bigquery.SchemaField("page_type", "STRING"),
+        bigquery.SchemaField("event_type", "STRING"),
+        bigquery.SchemaField("agent_id", "STRING"),
+        bigquery.SchemaField("raw_payload", "STRING"),
+    ]
+    create_partitioned_table(client, f"{project_id}.{dataset_id}.gemini_enterprise_user_activity", backfill_user_schema)
+
+    # 5. Tabela wstecznego wnioskowania modeli GenAI
+    backfill_inf_schema = [
+        bigquery.SchemaField("insert_id", "STRING"),
+        bigquery.SchemaField("insertId", "STRING"),
+        bigquery.SchemaField("timestamp", "TIMESTAMP"),
+        bigquery.SchemaField("user_id", "STRING"),
+        bigquery.SchemaField("conversation_id", "STRING"),
+        bigquery.SchemaField("agent_name", "STRING"),
+        bigquery.SchemaField("engine_id", "STRING"),
+        bigquery.SchemaField("assistant_id", "STRING"),
+        bigquery.SchemaField("input_tokens", "INT64"),
+        bigquery.SchemaField("output_tokens", "INT64"),
+        bigquery.SchemaField("cached_tokens", "INT64"),
+        bigquery.SchemaField("finish_reason", "STRING"),
+        bigquery.SchemaField("raw_payload", "STRING"),
+    ]
+    create_partitioned_table(client, f"{project_id}.{dataset_id}.gen_ai_client_inference_operation_details", backfill_inf_schema)
+
 def run_backfill(client, project_id, dataset_id, days=30):
     """Główna procedura wstecznej ingestji logów."""
     print(f"=== Wsteczna ingestja logów Gemini Enterprise dla {project_id} (Ostatnie {days} dni) ===")
@@ -174,6 +262,7 @@ def run_backfill(client, project_id, dataset_id, days=30):
             "table": f"{project_id}.{dataset_id}.cloudaudit_googleapis_com_activity",
             "schema": [
                 bigquery.SchemaField("insert_id", "STRING"),
+                bigquery.SchemaField("insertId", "STRING"),
                 bigquery.SchemaField("timestamp", "TIMESTAMP"),
                 bigquery.SchemaField("principal_email", "STRING"),
                 bigquery.SchemaField("method_name", "STRING"),
@@ -182,26 +271,16 @@ def run_backfill(client, project_id, dataset_id, days=30):
                 bigquery.SchemaField("protopayload_auditlog", "RECORD", fields=[
                     bigquery.SchemaField("methodName", "STRING"),
                     bigquery.SchemaField("resourceName", "STRING"),
+                    bigquery.SchemaField("status", "RECORD", fields=[
+                        bigquery.SchemaField("code", "INTEGER"),
+                        bigquery.SchemaField("message", "STRING"),
+                    ]),
                     bigquery.SchemaField("authenticationInfo", "RECORD", fields=[
                         bigquery.SchemaField("principalEmail", "STRING"),
                     ]),
                 ]),
             ],
-            "transform": lambda e: {
-                "insert_id": e.get("insertId", ""),
-                "timestamp": e.get("timestamp"),
-                "principal_email": e.get("protoPayload", {}).get("authenticationInfo", {}).get("principalEmail", "unknown"),
-                "method_name": e.get("protoPayload", {}).get("methodName", ""),
-                "resource_name": e.get("protoPayload", {}).get("resourceName", ""),
-                "raw_payload": json.dumps(e.get("protoPayload", {})),
-                "protopayload_auditlog": {
-                    "methodName": e.get("protoPayload", {}).get("methodName", ""),
-                    "resourceName": e.get("protoPayload", {}).get("resourceName", ""),
-                    "authenticationInfo": {
-                        "principalEmail": e.get("protoPayload", {}).get("authenticationInfo", {}).get("principalEmail", "unknown")
-                    }
-                }
-            }
+            "transform": parse_audit_entry
         },
         {
             "name": "Aktywność Użytkowników",
@@ -209,6 +288,7 @@ def run_backfill(client, project_id, dataset_id, days=30):
             "table": f"{project_id}.{dataset_id}.gemini_enterprise_user_activity",
             "schema": [
                 bigquery.SchemaField("insert_id", "STRING"),
+                bigquery.SchemaField("insertId", "STRING"),
                 bigquery.SchemaField("timestamp", "TIMESTAMP"),
                 bigquery.SchemaField("user_iam_principal", "STRING"),
                 bigquery.SchemaField("user_pseudo_id", "STRING"),
@@ -219,18 +299,7 @@ def run_backfill(client, project_id, dataset_id, days=30):
                 bigquery.SchemaField("agent_id", "STRING"),
                 bigquery.SchemaField("raw_payload", "STRING"),
             ],
-            "transform": lambda e: {
-                "insert_id": e.get("insertId", ""),
-                "timestamp": e.get("timestamp"),
-                "user_iam_principal": e.get("jsonPayload", {}).get("userIamPrincipal", ""),
-                "user_pseudo_id": e.get("jsonPayload", {}).get("request", {}).get("userEvent", {}).get("userPseudoId", ""),
-                "method_name": e.get("jsonPayload", {}).get("logMetadata", {}).get("methodName", ""),
-                "engine": e.get("jsonPayload", {}).get("request", {}).get("userEvent", {}).get("engine", e.get("jsonPayload", {}).get("logMetadata", {}).get("name", "")),
-                "page_type": e.get("jsonPayload", {}).get("request", {}).get("userEvent", {}).get("agentspaceInfo", {}).get("agentspacePageType", ""),
-                "event_type": e.get("jsonPayload", {}).get("request", {}).get("userEvent", {}).get("eventType", ""),
-                "agent_id": (e.get("jsonPayload", {}).get("request", {}).get("agentsSpec", {}).get("agentSpecs", [{}])[0].get("agentId", "")),
-                "raw_payload": json.dumps(e.get("jsonPayload", {}))
-            }
+            "transform": parse_activity_entry
         },
         {
             "name": "Wnioskowanie Modeli GenAI (Tokeny)",
@@ -238,6 +307,7 @@ def run_backfill(client, project_id, dataset_id, days=30):
             "table": f"{project_id}.{dataset_id}.gen_ai_client_inference_operation_details",
             "schema": [
                 bigquery.SchemaField("insert_id", "STRING"),
+                bigquery.SchemaField("insertId", "STRING"),
                 bigquery.SchemaField("timestamp", "TIMESTAMP"),
                 bigquery.SchemaField("user_id", "STRING"),
                 bigquery.SchemaField("conversation_id", "STRING"),
@@ -250,20 +320,7 @@ def run_backfill(client, project_id, dataset_id, days=30):
                 bigquery.SchemaField("finish_reason", "STRING"),
                 bigquery.SchemaField("raw_payload", "STRING"),
             ],
-            "transform": lambda e: {
-                "insert_id": e.get("insertId", ""),
-                "timestamp": e.get("timestamp"),
-                "user_id": e.get("jsonPayload", {}).get("user.id", ""),
-                "conversation_id": e.get("jsonPayload", {}).get("gen_ai.conversation.id", ""),
-                "agent_name": e.get("jsonPayload", {}).get("gen_ai.agent.name", e.get("resource", {}).get("labels", {}).get("agent_id", "")),
-                "engine_id": e.get("resource", {}).get("labels", {}).get("engine_id", ""),
-                "assistant_id": e.get("resource", {}).get("labels", {}).get("assistant_id", ""),
-                "input_tokens": int(e.get("jsonPayload", {}).get("gen_ai.usage.input_tokens", 0) or 0),
-                "output_tokens": int(e.get("jsonPayload", {}).get("gen_ai.usage.output_tokens", 0) or 0),
-                "cached_tokens": int(e.get("jsonPayload", {}).get("gen_ai.usage.cache_read.input_tokens", 0) or 0),
-                "finish_reason": (e.get("jsonPayload", {}).get("gen_ai.response.finish_reasons", [""])[0] if e.get("jsonPayload", {}).get("gen_ai.response.finish_reasons") else ""),
-                "raw_payload": json.dumps(e.get("jsonPayload", {}))
-            }
+            "transform": parse_inference_entry
         }
     ]
 
