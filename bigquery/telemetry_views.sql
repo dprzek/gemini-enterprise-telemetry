@@ -30,18 +30,29 @@ raw_user_events AS (
       COALESCE(jsonPayload.request.userevent.agentspaceinfo.agentspacepagetype, '') AS page_type,
       COALESCE(jsonPayload.request.userevent.eventtype, '') AS event_type,
       COALESCE(jsonPayload.request.userevent.engine, '') AS engine,
+      REGEXP_EXTRACT(COALESCE(jsonPayload.response.answer.name, ''), r'/sessions/([^/]+)') AS session_id,
       CASE 
-        WHEN COALESCE(jsonPayload.request.userevent.agentspaceinfo.agentspacepagetype, '') = 'deep-research'
-          OR jsonPayload.response.agentinfo.agent LIKE '%/agents/deep_research'
-          OR EXISTS (
-            SELECT 1 
-            FROM UNNEST(COALESCE(jsonPayload.request.agentsspec.agentspecs, [])) s 
-            WHERE s.agentid = 'deep_research'
-          ) THEN 1 
+        WHEN jsonPayload.logmetadata.methodname IN ('StreamAssist', 'Assist')
+         AND (
+           COALESCE(jsonPayload.response.agentinfo.agent, '') LIKE '%/agents/deep_research'
+           OR EXISTS (
+             SELECT 1 
+             FROM UNNEST(COALESCE(jsonPayload.request.agentsspec.agentspecs, [])) s 
+             WHERE s.agentid = 'deep_research'
+           )
+         ) THEN 1 
         ELSE 0 
       END AS is_deep_research,
       CASE 
-        WHEN jsonPayload.logmetadata.methodname IN ('StreamAssist', 'Assist') THEN 1 
+        WHEN jsonPayload.logmetadata.methodname IN ('StreamAssist', 'Assist')
+         AND NOT (
+           COALESCE(jsonPayload.response.agentinfo.agent, '') LIKE '%/agents/deep_research'
+           OR EXISTS (
+             SELECT 1 
+             FROM UNNEST(COALESCE(jsonPayload.request.agentsspec.agentspecs, [])) s 
+             WHERE s.agentid = 'deep_research'
+           )
+         ) THEN 1 
         ELSE 0 
       END AS is_assistant_query,
       insertId
@@ -63,13 +74,15 @@ raw_user_events AS (
       page_type,
       event_type,
       engine,
+      REGEXP_EXTRACT(COALESCE(raw_payload, ''), r'sessions/([0-9]+)') AS session_id,
       CASE 
-        WHEN page_type = 'deep-research' 
-          OR agent_id = 'deep_research' THEN 1 
+        WHEN method_name IN ('StreamAssist', 'Assist') 
+         AND (agent_id = 'deep_research' OR raw_payload LIKE '%agents/deep_research%') THEN 1 
         ELSE 0 
       END AS is_deep_research,
       CASE 
-        WHEN method_name IN ('StreamAssist', 'Assist') THEN 1 
+        WHEN method_name IN ('StreamAssist', 'Assist') 
+         AND NOT (agent_id = 'deep_research' OR raw_payload LIKE '%agents/deep_research%') THEN 1 
         ELSE 0 
       END AS is_assistant_query,
       insert_id AS insertId
@@ -86,7 +99,7 @@ aggregated_user_events AS (
     user_id,
     COUNT(*) AS total_events,
     SUM(is_assistant_query) AS assistant_queries,
-    SUM(is_deep_research) AS deep_research_count,
+    COALESCE(COUNT(DISTINCT CASE WHEN is_deep_research = 1 THEN COALESCE(session_id, insertId) END), 0) AS deep_research_count,
     COUNTIF(method_name = 'CreateAgent') AS agents_created,
     MIN(timestamp) AS first_event,
     MAX(timestamp) AS last_event
@@ -259,11 +272,21 @@ FROM (
       jsonPayload.request.userevent.userpseudoid,
       'anonymous_user'
     ) AS user_id,
-    COALESCE(
-      NULLIF(jsonPayload.request.userevent.agentspaceinfo.agentspacepagetype, ''),
-      jsonPayload.logmetadata.methodname,
-      'General Assistant'
-    ) AS feature_name
+    CASE
+      WHEN jsonPayload.logmetadata.methodname IN ('StreamAssist', 'Assist')
+       AND (
+         COALESCE(jsonPayload.response.agentinfo.agent, '') LIKE '%/agents/deep_research'
+         OR EXISTS (
+           SELECT 1 
+           FROM UNNEST(COALESCE(jsonPayload.request.agentsspec.agentspecs, [])) s 
+           WHERE s.agentid = 'deep_research'
+         )
+       ) THEN 'Deep Research'
+      WHEN jsonPayload.logmetadata.methodname IN ('StreamAssist', 'Assist') THEN 'General Assistant'
+      WHEN COALESCE(jsonPayload.request.userevent.agentspaceinfo.agentspacepagetype, '') != '' 
+        THEN CONCAT('UI: ', jsonPayload.request.userevent.agentspaceinfo.agentspacepagetype)
+      ELSE COALESCE(jsonPayload.logmetadata.methodname, 'Other')
+    END AS feature_name
   FROM `{project_id}.{dataset_id}.discoveryengine_googleapis_com_gemini_enterprise_user_activity`
   
   UNION ALL
@@ -276,7 +299,13 @@ FROM (
       user_pseudo_id,
       'anonymous_user'
     ) AS user_id,
-    COALESCE(NULLIF(page_type, ''), method_name, 'General Assistant') AS feature_name
+    CASE
+      WHEN method_name IN ('StreamAssist', 'Assist')
+       AND (agent_id = 'deep_research' OR raw_payload LIKE '%agents/deep_research%') THEN 'Deep Research'
+      WHEN method_name IN ('StreamAssist', 'Assist') THEN 'General Assistant'
+      WHEN COALESCE(page_type, '') != '' THEN CONCAT('UI: ', page_type)
+      ELSE COALESCE(method_name, 'Other')
+    END AS feature_name
   FROM `{project_id}.{dataset_id}.gemini_enterprise_user_activity`
 )
 GROUP BY feature_name
