@@ -21,6 +21,39 @@ Pakiet obejmuje automatyczną strumieniową i wsadową ingestję logów do BigQu
 
 ---
 
+## Architektura Oparta na Oficjalnych Usługach Google Cloud (Zero Regex)
+
+> [!IMPORTANT]
+> **Natywna Architektura Telemetrii zamiast Parsowania Surowego Tekstu**:
+> Rozwiązanie **nie wyciąga ani nie odgrzebuje danych z nieustrukturyzowanych logów za pomocą wyrażeń regularnych (regex)**. Zostało zaprojektowane w 100% w oparciu o oficjalne usługi, standardy i interfejsy API obserwowalności Google Cloud Gemini Enterprise:
+> - 📘 [Manage observability settings](https://cloud.google.com/gemini/enterprise/docs/manage-observability-settings) ([wersja devsite](https://clouddocs.devsite.corp.google.com/gemini/enterprise/docs/manage-observability-settings))
+> - 📘 [Access traces and spans](https://cloud.google.com/gemini/enterprise/docs/access-traces-and-spans) ([wersja devsite](https://clouddocs.devsite.corp.google.com/gemini/enterprise/docs/access-traces-and-spans))
+> - 📘 [Access metrics](https://cloud.google.com/gemini/enterprise/docs/access-metrics) ([wersja devsite](https://clouddocs.devsite.corp.google.com/gemini/enterprise/docs/access-metrics))
+
+### 3 Filary Oficjalnej Integracji Google Cloud:
+
+1. ⚙️ **Konfiguracja Obserwowalności Silnika ([Manage observability settings](https://cloud.google.com/gemini/enterprise/docs/manage-observability-settings))**:
+   - Skrypt instalacyjny (`deploy.py` / `deploy.sh`) oraz moduł `TelemetryService` konfigurują silnik Gemini Enterprise za pośrednictwem Discovery Engine API (`PATCH ...?updateMask=observabilityConfig`).
+   - Włączane są natywne flagi platformy:
+     * `observabilityConfig.observabilityEnabled = true` — automatyczna emisja rozproszonych śladów OpenTelemetry do Google Cloud Trace.
+     * `observabilityConfig.sensitiveLoggingEnabled = true` — ustrukturyzowane logowanie zapytań i odpowiedzi modelu w formacie JSON/ProtoPayload.
+
+2. ⏱️ **Rozproszone Ślady i Spany OpenTelemetry ([Access traces and spans](https://cloud.google.com/gemini/enterprise/docs/access-traces-and-spans))**:
+   - Gemini Enterprise emituje standardowe spany OpenTelemetry dla każdej tury konwersacji (`AssistantService.StreamAssist`), wywołania narzędzia (`execute_tool`) i konektora (`invoke_connector`).
+   - **Deterministyczne złączenia w BigQuery**: Zamiast dopasowywać ciągi znaków wyrażeniami regularnymi, widoki SQL (`v_observability_traces`, `v_user_daily_utilization`) korelują zdarzenia użytkownika z wnioskowaniem LLM (`gen_ai_client_inference_operation_details`) **ściśle po unikalnym identyfikatorze `trace_id` i `session_id` OpenTelemetry**.
+   - **Zero Double-Counting**: Zastosowanie kluczy śladów i okien analitycznych (`ROW_NUMBER() OVER ...`) całkowicie eliminuje duplikaty i iloczyny kartezjańskie, zapewniając pełną spójność matematyczną.
+
+3. 📊 **Natywne Metryki Operacyjne Cloud Monitoring ([Access metrics](https://cloud.google.com/gemini/enterprise/docs/access-metrics))**:
+   - Wszystkie metryki operacyjne są odpytywane bezpośrednio z Cloud Monitoring API (`monitoring.googleapis.com`) z oficjalnej przestrzeni nazw `discoveryengine.googleapis.com/`:
+     * `agent/session_count` — łączna liczba sesji agentów,
+     * `agent/turn_count` — liczba tur konwersacyjnych (Conversational Depth),
+     * `agent/session_with_tool_count` — wskaźnik użycia narzędzi (Tool Adoption Rate),
+     * `engine/time_to_first_token_latency` — rozkład statystyczny opóźnień TTFT (Time to First Token),
+     * `quota/*` — monitorowanie limitów puli organizacji w czasie rzeczywistym.
+   - Metryki te są agregowane bezpośrednio w silniku platformy Google Cloud, a nie szacowane z logów.
+
+---
+
 ## Architektura Rozwiązania
 
 ```

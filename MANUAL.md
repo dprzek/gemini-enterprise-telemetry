@@ -46,9 +46,9 @@ Niniejszy podręcznik zawiera kompletne instrukcje wdrożenia, konfiguracji i ek
 
 ## 2. Architektura Obserwowalności Gemini Enterprise
 
-Rozwiązanie natywnie integruje się z trzema kluczowymi obszarami obserwowalności Google Cloud Gemini Enterprise:
+Rozwiązanie natywnie integruje się z trzema kluczowymi obszarami obserwowalności Google Cloud Gemini Enterprise. Całość opiera się na **oficjalnych interfejsach platformy, bez odgrzebywania logów czy parsowania surowego tekstu wyrażeniami regularnymi (Zero Regex)**:
 
-### 2.1 Zarządzanie Ustawieniami Obserwowalności
+### 2.1 Zarządzanie Ustawieniami Obserwowalności ([Oficjalna Dokumentacja](https://cloud.google.com/gemini/enterprise/docs/manage-observability-settings) / [Devsite](https://clouddocs.devsite.corp.google.com/gemini/enterprise/docs/manage-observability-settings))
 Gemini Enterprise umożliwia precyzyjne sterowanie instrumentacją telemetrii na poziomie **Silnika (Aplikacji asystenta)** oraz **Pojedynczego Agenta**:
 
 1. **Instrumentacja Śladów OpenTelemetry i Logów (`observabilityEnabled`)**:
@@ -78,8 +78,12 @@ curl -X PATCH \
 
 ---
 
-### 2.2 Dostęp do Śladów i Spanów (OpenTelemetry & Cloud Trace)
+### 2.2 Dostęp do Śladów i Spanów OpenTelemetry ([Oficjalna Dokumentacja](https://cloud.google.com/gemini/enterprise/docs/access-traces-and-spans) / [Devsite](https://clouddocs.devsite.corp.google.com/gemini/enterprise/docs/access-traces-and-spans))
 Gdy instrumentacja jest aktywna, Gemini Enterprise emituje kompletne rozproszone ślady do usługi **Google Cloud Trace** (retencja 30 dni):
+
+> [!NOTE]
+> **Brak wyrażeń regularnych (Zero Regex)**:
+> Korelacja zdarzeń w widokach SQL (`v_observability_traces`, `v_user_daily_utilization`) oraz łączenie logów asystenta z tabelą wnioskowania modelu (`gen_ai_client_inference_operation_details`) odbywa się **ściśle po natywnych kluczach OpenTelemetry `trace_id` oraz `session_id`**. Wyklucza to błędy parsowania tekstu, iloczyny kartezjańskie i podwójne zliczanie tokenów.
 
 - **Kontekst Śladu**: Przekazywany za pośrednictwem nagłówka `x-cloud-trace-context` i rejestrowany w tabeli oraz widoku `v_observability_traces`.
 - **Hierarchia Śladu i Spany**:
@@ -91,8 +95,8 @@ Gdy instrumentacja jest aktywna, Gemini Enterprise emituje kompletne rozproszone
 
 ---
 
-### 2.3 Dostęp do Metryk Operacyjnych (Cloud Monitoring)
-Metryki są automatycznie publikowane w przestrzeni nazw `discoveryengine.googleapis.com/` w Google Cloud Monitoring (retencja 6 tygodni):
+### 2.3 Dostęp do Metryk Operacyjnych Cloud Monitoring ([Oficjalna Dokumentacja](https://cloud.google.com/gemini/enterprise/docs/access-metrics) / [Devsite](https://clouddocs.devsite.corp.google.com/gemini/enterprise/docs/access-metrics))
+Metryki są automatycznie publikowane w przestrzeni nazw `discoveryengine.googleapis.com/` w Google Cloud Monitoring (retencja 6 tygodni). Narzędzia CLI i usługa telemetrii odpytują je bezpośrednio przez Cloud Monitoring API:
 
 #### A. Wskaźniki Zaangażowania i Adopcji Konwersacyjnej:
 - **`agent_session_count`**: Łączna liczba sesji konwersacyjnych nawiązanych z agentami.

@@ -22,9 +22,10 @@ Niniejszy skill zawiera procedury, skrypty automatyzujące, widoki analityczne S
    - `v_daily_adoption`: Wskaźniki adopcji organizacji (trendy DAU/WAU/MAU, zapytania, spalone tokeny).
    - `v_feature_usage`: Wykorzystanie poszczególnych modułów i funkcji Gemini Enterprise.
    - `v_token_telemetry`: Metryki tokenów wejściowych, wyjściowych i buforowanych.
-3. **Integracja z Cloud Monitoring i OpenTelemetry**:
-   - Ustawienia obserwowalności: `observabilityConfig` (aktywacja śladów OpenTelemetry oraz wrażliwego logowania wejść/wyjść).
-   - Metryki operacyjne: `agent_session_count`, `agent_turn_count` (głębokość konwersacji), `agent_session_with_tool_count` (wskaźnik adopcji narzędzi) oraz `engine/time_to_first_token_latency` (TTFT).
+3. **Integracja z Cloud Monitoring i OpenTelemetry (Oficjalne API Google Cloud, Zero Regex)**:
+   - Ustawienia obserwowalności: [`observabilityConfig`](https://cloud.google.com/gemini/enterprise/docs/manage-observability-settings) (aktywacja śladów OpenTelemetry oraz wrażliwego logowania wejść/wyjść).
+   - Rozproszone ślady i spany: [Cloud Trace OpenTelemetry Spans](https://cloud.google.com/gemini/enterprise/docs/access-traces-and-spans) łączone deterministycznie w BigQuery po `trace_id` i `session_id`.
+   - Metryki operacyjne: [Cloud Monitoring](https://cloud.google.com/gemini/enterprise/docs/access-metrics) (`agent_session_count`, `agent_turn_count`, `agent_session_with_tool_count`, `engine/time_to_first_token_latency` TTFT).
    - Bieżące monitorowanie limitów kwotowych i tempa ich zużycia (`discoveryengine.googleapis.com/quota/*`).
 4. **Agent Gemini Enterprise**: Wdrożony bezpośrednio w silniku Gemini Enterprise (Discovery Engine / Agent Builder).
    - Rozpoczyna konwersację od **oświadczenia o oferowanych metrykach** (utylizacja dzienna, adopcja/zaangażowanie, obserwowalność/ślady, limity kwotowe).
