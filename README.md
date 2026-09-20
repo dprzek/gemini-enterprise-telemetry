@@ -17,7 +17,7 @@ cd gemini-enterprise-telemetry
 
 # 2. Uruchom automatyczne wdrożenie ze wskazaniem identyfikatora silnika (Engine ID):
 # przykład: ./deploy.sh ge-dprzek_1789915910154 --project ge-test-dprzek --location eu
-./deploy.sh /<GE_APP_ID - nie mylić z APP_NAME> --project <Project ID> --location eu
+./deploy.sh <GE_APP_ID - nie mylić z APP_NAME> --project <PROJECT_ID> --location eu
 
 # Wymuszenie ponownego wdrożenia Agenta (np. przy aktualizacji kodu):
 ./deploy.sh ge-dprzek_1789915910154 --recreate
