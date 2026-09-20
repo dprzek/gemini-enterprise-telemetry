@@ -185,6 +185,10 @@ raw_audit AS (
       ELSE 0 
     END AS is_custom_agent_created
   FROM `{project_id}.{dataset_id}.cloudaudit_googleapis_com_activity`
+  QUALIFY ROW_NUMBER() OVER(
+    PARTITION BY COALESCE(NULLIF(insertId, ""), NULLIF(insert_id, ""), CONCAT(CAST(timestamp AS STRING), "_", COALESCE(method_name, protopayload_auditlog.methodName, "")))
+    ORDER BY timestamp
+  ) = 1
 ),
 aggregated_audit AS (
   SELECT

@@ -258,12 +258,30 @@ def run_backfill(client, project_id, dataset_id, days=30):
         entries = fetch_logs(project_id, t["filter"], days=days)
         print(f"    Pobrano {len(entries)} wpisów.")
         if entries:
-            rows = [t["transform"](e) for e in entries]
-            errors = client.insert_rows_json(t["table"], rows)
-            if errors:
-                print(f"    ⚠️ Błędy zapisu do {t['table']}: {errors}")
+            existing_ids = set()
+            try:
+                col = "insert_id" if any(f.name == "insert_id" for f in t["schema"]) else "insertId"
+                chk_query = f"SELECT DISTINCT {col} FROM `{t['table']}` WHERE {col} IS NOT NULL"
+                job = client.query(chk_query)
+                for row in job.result():
+                    if row[0]:
+                        existing_ids.add(row[0])
+            except Exception:
+                pass
+
+            new_entries = [e for e in entries if e.get("insertId") not in existing_ids]
+            if len(new_entries) < len(entries):
+                print(f"    Pominięto {len(entries) - len(new_entries)} już zaingestowanych rekordów (idempotencja).")
+            
+            if new_entries:
+                rows = [t["transform"](e) for e in new_entries]
+                errors = client.insert_rows_json(t["table"], rows)
+                if errors:
+                    print(f"    ⚠️ Błędy zapisu do {t['table']}: {errors}")
+                else:
+                    print(f"    ✔ Zapisano {len(rows)} nowych rekordów do {t['table']}.")
             else:
-                print(f"    ✔ Zapisano {len(rows)} rekordów do {t['table']}.")
+                print(f"    ✔ Wszystkie rekordy w {t['table']} są już aktualne (brak nowych wpisów).")
 
     print("✔ Wsteczna ingestja logów zakończona sukcesem!")
 
