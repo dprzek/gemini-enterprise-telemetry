@@ -36,6 +36,37 @@ def fetch_logs(project_id, filter_str, days=30, limit=1000):
     except json.JSONDecodeError:
         return []
 
+def parse_activity_entry(e):
+    return {
+        "insert_id": e.get("insertId", ""),
+        "timestamp": e.get("timestamp"),
+        "user_iam_principal": e.get("jsonPayload", {}).get("userIamPrincipal", e.get("jsonPayload", {}).get("useriamprincipal", "")),
+        "user_pseudo_id": e.get("jsonPayload", {}).get("request", {}).get("userEvent", {}).get("userPseudoId", e.get("jsonPayload", {}).get("request", {}).get("userevent", {}).get("userpseudoid", "")),
+        "method_name": e.get("jsonPayload", {}).get("logMetadata", {}).get("methodName", e.get("jsonPayload", {}).get("logmetadata", {}).get("methodname", "")),
+        "engine": e.get("jsonPayload", {}).get("request", {}).get("userEvent", {}).get("engine", e.get("jsonPayload", {}).get("request", {}).get("userevent", {}).get("engine", e.get("jsonPayload", {}).get("logMetadata", {}).get("name", ""))),
+        "page_type": e.get("jsonPayload", {}).get("request", {}).get("userEvent", {}).get("agentspaceInfo", {}).get("agentspacePageType", e.get("jsonPayload", {}).get("request", {}).get("userevent", {}).get("agentspaceinfo", {}).get("agentspacepagetype", "")),
+        "event_type": e.get("jsonPayload", {}).get("request", {}).get("userEvent", {}).get("eventType", e.get("jsonPayload", {}).get("request", {}).get("userevent", {}).get("eventtype", "")),
+        "agent_id": (e.get("jsonPayload", {}).get("request", {}).get("agentsSpec", {}).get("agentSpecs", [{}])[0].get("agentId", "") if e.get("jsonPayload", {}).get("request", {}).get("agentsSpec") else ""),
+        "raw_payload": json.dumps(e.get("jsonPayload", {}))
+    }
+
+def parse_inference_entry(e):
+    jp = e.get("jsonPayload", {})
+    return {
+        "insert_id": e.get("insertId", ""),
+        "timestamp": e.get("timestamp"),
+        "user_id": jp.get("user.id", jp.get("user_id", "")),
+        "conversation_id": jp.get("gen_ai.conversation.id", jp.get("conversation_id", "")),
+        "agent_name": jp.get("gen_ai.agent.name", e.get("resource", {}).get("labels", {}).get("agent_id", "")),
+        "engine_id": e.get("resource", {}).get("labels", {}).get("engine_id", ""),
+        "assistant_id": e.get("resource", {}).get("labels", {}).get("assistant_id", ""),
+        "input_tokens": int(jp.get("gen_ai.usage.input_tokens", jp.get("gen_ai_usage_input_tokens", 0)) or 0),
+        "output_tokens": int(jp.get("gen_ai.usage.output_tokens", jp.get("gen_ai_usage_output_tokens", 0)) or 0),
+        "cached_tokens": int(jp.get("gen_ai.usage.cache_read.input_tokens", jp.get("gen_ai_usage_cached_tokens", 0)) or 0),
+        "finish_reason": (jp.get("gen_ai.response.finish_reasons", [""])[0] if jp.get("gen_ai.response.finish_reasons") else ""),
+        "raw_payload": json.dumps(jp)
+    }
+
 def init_streaming_tables(client, project_id, dataset_id):
     """Inicjalizuje puste tabele strumieniowe zlewu logów, jeśli jeszcze nie istnieją."""
     # 1. Tabela aktywności użytkownika

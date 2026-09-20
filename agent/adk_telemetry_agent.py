@@ -37,7 +37,9 @@ def _get_env_config():
         try:
             _, project_id = google.auth.default()
         except Exception:
-            project_id = "dprzek-prod"
+            project_id = None
+    if not project_id:
+        raise ValueError("Nie określono identyfikatora projektu GCP (ustaw BIGQUERY_PROJECT lub GOOGLE_CLOUD_PROJECT).")
     dataset_id = os.environ.get("BIGQUERY_DATASET", "gemini_enterprise_telemetry")
     return project_id, dataset_id
 

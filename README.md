@@ -252,15 +252,95 @@ W odróżnieniu od statycznych promptów snapshotowych, to rozwiązanie wdraża 
   4. `get_realtime_quotas()`: Bada w czasie rzeczywistym stan limitów kwotowych (RPM, TPM, headroom) oraz utylizację w Google Cloud Monitoring.
   5. `get_observability_traces(days)`: Bada rozproszone ślady OpenTelemetry, liczbę zapytań w oknach czasowych, stany odpowiedzi oraz błędy z widoku `v_observability_traces`.
 
-### Wdrożenie Agenta ADK:
+### Wdrożenie Agenta ADK i Rejestracja w Gemini Enterprise:
+
+Agent jest wdrażany jako zarządzana usługa **Vertex AI Agent Runtime (Reasoning Engine)**, a następnie rejestrowany w silniku Gemini Enterprise (`Discovery Engine`) z flagą pełnego współdzielenia dla wszystkich uprawnionych użytkowników organizacji:
+
 ```bash
 python3 agent/deploy_adk_agent.py \
     --project=<PROJECT_ID> \
     --location=eu \
     --vertex-location=europe-west1 \
-    --engine=<ENGINE_ID>
+    --engine=<ENGINE_ID_LUB_NAZWA> \
+    --dataset=gemini_enterprise_telemetry
 ```
-Agent jest automatycznie rejestrowany w silniku Gemini Enterprise (`default_assistant/agents`) ze stanem `ENABLED` i natychmiast gotowy do obsługi zapytań użytkowników i administratorów.
+
+> [!NOTE]
+> **Co automatyzuje skrypt `deploy_adk_agent.py`?**
+> 1. **Automatyczne uprawnienia IAM**: Nadaje automatycznie kontu usługi Reasoning Engine (`service-{PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com`) role `roles/bigquery.jobUser`, `roles/monitoring.viewer`, `roles/cloudtrace.user` oraz uprawnienie `READER` do zbioru BigQuery.
+> 2. **Pakowanie i kompilacja kontenera**: Generuje kod agenta i wdraża instancję Reasoning Engine w wybranym regionie (`europe-west1`).
+> 3. **Współdzielenie w organizacji (`ALL_USERS`)**: Rejestruje agenta w Gemini Enterprise z konfiguracją `"sharingConfig": {"scope": "ALL_USERS"}` i statusem `ENABLED`, dzięki czemu agent jest widoczny dla każdego użytkownika z dostępem do aplikacji.
+> 4. **Brak prompt injection**: Agent nie zawiera w prompcie żadnych statycznych zrzutów danych. Każde zapytanie powoduje dynamiczne odpytanie BigQuery/Monitoring w czasie rzeczywistym.
+
+---
+
+## Współdzielenie Agenta w Organizacji (`ALL_USERS`) i Uprawnienia IAM
+
+Aby pracownicy i administratorzy mogli korzystać z Agenta Telemetrii w interfejsie webowym Gemini Enterprise, konfiguracja współdzielenia agenta jest ustawiona na `ALL_USERS`:
+
+```json
+{
+  "displayName": "Gemini Enterprise Telemetry & Adoption Agent",
+  "state": "ENABLED",
+  "sharingConfig": {
+    "scope": "ALL_USERS"
+  }
+}
+```
+
+### Wymagane Role IAM dla Użytkowników Końcowych:
+Aby użytkownik mógł zalogować się do aplikacji Gemini Enterprise i rozmawiać ze współdzielonym Agentem Telemetrii, administrator musi nadać mu w projekcie dwie role:
+1. `roles/discoveryengine.user` (Discovery Engine User) – dostęp do silnika wyszukiwania i asystenta.
+2. `roles/discoveryengine.agentspaceUser` (Agent Space User) – uprawnienie do interakcji w przestrzeni agentów Gemini.
+
+Nadanie uprawnień za pomocą gcloud:
+```bash
+# Dla pojedynczego użytkownika:
+gcloud projects add-iam-policy-binding <PROJECT_ID> \
+    --member="user:uzytkownik@twoja-firma.com" \
+    --role="roles/discoveryengine.user"
+
+gcloud projects add-iam-policy-binding <PROJECT_ID> \
+    --member="user:uzytkownik@twoja-firma.com" \
+    --role="roles/discoveryengine.agentspaceUser"
+
+# Dla całej grupy Google Workspace / Cloud Identity:
+gcloud projects add-iam-policy-binding <PROJECT_ID> \
+    --member="group:wszyscy-pracownicy@twoja-firma.com" \
+    --role="roles/discoveryengine.user"
+
+gcloud projects add-iam-policy-binding <PROJECT_ID> \
+    --member="group:wszyscy-pracownicy@twoja-firma.com" \
+    --role="roles/discoveryengine.agentspaceUser"
+```
+
+---
+
+## Zestaw 15 Zautomatyzowanych Scenariuszy Testowych (`tests/test_suite.py`)
+
+Repozytorium zawiera kompletny, w pełni zautomatyzowany pakiet 15 testów jednostkowych i integracyjnych uruchamianych poleceniem:
+
+```bash
+python3 -m unittest discover -s tests -p "test_suite.py" -v
+```
+
+| Nr | Nazwa Scenariusza Testowego | Zakres i Weryfikowane Niezmienniki |
+| :- | :--- | :--- |
+| **1** | `test_01_syntax_and_compilation` | Kompilacja wszystkich plików Pythona, brak błędów składniowych i weryfikacja multi-tenant hygiene (brak hardkodowanych ID projektów). |
+| **2** | `test_02_engine_resolution_and_error_handling` | Dynamiczne rozpoznawanie silnika po nazwie wyświetlanej, pełnym ID lub fallback do pierwszego dostępnego silnika. |
+| **3** | `test_03_automated_reasoning_engine_iam_setup` | Weryfikacja uprawnień konta usługi Reasoning Engine (`roles/bigquery.jobUser`, `roles/monitoring.viewer`, `READER` w BigQuery). |
+| **4** | `test_04_bigquery_tables_and_partitioning` | Idempotentność i weryfikacja schematu tabel BigQuery oraz partycjonowania po polu `timestamp`. |
+| **5** | `test_05_backfill_idempotency_and_schema` | Wsteczna ingestja logów z Cloud Logging i mapowanie pól audit, activity oraz inference tokenów. |
+| **6** | `test_06_bigquery_views_syntax_and_compilation` | Kompilacja i parametryzacja 6 widoków analitycznych SQL w BigQuery (SQL DDL Dry-Run). |
+| **7** | `test_07_mathematical_invariants` | Spójność matematyczna: suma zdarzeń $\ge$ suma akcji, łączna liczba tokenów $=$ wejściowe $+$ wyjściowe, brak wartości ujemnych. |
+| **8** | `test_08_token_trace_correlation_precision` | Precyzja korelacji tokenów po identyfikatorach śladów OpenTelemetry (Zero Double-Counting, brak iloczynu kartezjańskiego). |
+| **9** | `test_09_feature_classification_precision` | Rygorystyczna separacja funkcjonalności (klasyfikacja sesji asystenta, zapytań Deep Research i tworzenia agentów). |
+| **10** | `test_10_cloud_monitoring_and_opentelemetry_traces` | Integracja z Cloud Monitoring API (limity kwotowe, wskaźniki zdrowia) oraz rozproszone ślady OTel. |
+| **11** | `test_11_adk_agent_definition_and_tools` | Poprawność definicji Agenta ADK (`google.adk.agents.Agent`), 5 narzędzi oraz serializacja cloudpickle. |
+| **12** | `test_12_reasoning_engine_deployment_state` | Weryfikacja wdrożenia i stanu `ACTIVE` instancji Reasoning Engine w Vertex AI. |
+| **13** | `test_13_gemini_enterprise_agent_sharing_and_registration` | Weryfikacja rejestracji agenta w Discovery Engine, stanu `ENABLED` oraz konfiguracji `sharingConfig.scope: ALL_USERS`. |
+| **14** | `test_14_dynamic_user_query_by_days` | Dynamiczne odpytanie per-user z filtrowaniem po dniach na żywym BigQuery dla wielu użytkowników (`admin`, `damian.przekop@gmail.com`). |
+| **15** | `test_15_dynamic_multi_user_adoption_and_summary` | Dynamiczne generowanie rankingu adopcji użytkowników i podsumowania metryk organizacji bez statycznego prompt injection. |
 
 ---
 

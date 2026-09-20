@@ -21,6 +21,7 @@ and register it in Gemini Enterprise.
 import argparse
 import json
 import os
+import subprocess
 import sys
 import urllib.request
 import urllib.error
@@ -159,6 +160,9 @@ def register_adk_agent_in_gemini(project_id, project_number, location, engine_id
         "displayName": "Gemini Enterprise Telemetry & Adoption Agent",
         "description": "Dynamiczny agent ADK telemetrii, utylizacji i adopcji Gemini Enterprise w czasie rzeczywistym.",
         "state": "ENABLED",
+        "sharingConfig": {
+            "scope": "ALL_USERS"
+        },
         "adk_agent_definition": {
             "tool_settings": {
                 "tool_description": "Narzędzie do pobierania w czasie rzeczywistym telemetrii, adopcji użytkowników, zużycia tokenów, czasów odpowiedzi oraz limitów kwotowych w Gemini Enterprise."
@@ -187,6 +191,7 @@ def register_adk_agent_in_gemini(project_id, project_number, location, engine_id
             print(f"     Nazwa: {res.get('displayName')}")
             print(f"     Resource: {res.get('name')}")
             print(f"     Stan: {res.get('state')}")
+            print(f"     Sharing: {res.get('sharingConfig', {}).get('scope', 'ALL_USERS')}")
             return res
     except urllib.error.HTTPError as e:
         err_body = e.read().decode("utf-8")
@@ -195,10 +200,64 @@ def register_adk_agent_in_gemini(project_id, project_number, location, engine_id
         raise
 
 
+def ensure_reasoning_engine_permissions(project_id, project_number, dataset_id, credentials):
+    """Automatycznie weryfikuje i nadaje uprawnienia IAM dla konta usługi Vertex Reasoning Engine."""
+    sa_email = f"service-{project_number}@gcp-sa-aiplatform-re.iam.gserviceaccount.com"
+    print(f"[*] Weryfikacja i konfiguracja uprawnień IAM dla konta usługi Reasoning Engine:")
+    print(f"    Konto usługi: {sa_email}")
+
+    # 1. Role na poziomie projektu (BigQuery Job User, Monitoring Viewer, Cloud Trace User)
+    roles = [
+        "roles/bigquery.jobUser",
+        "roles/monitoring.viewer",
+        "roles/cloudtrace.user"
+    ]
+    for role in roles:
+        try:
+            cmd = [
+                "gcloud", "projects", "add-iam-policy-binding", project_id,
+                f"--member=serviceAccount:{sa_email}",
+                f"--role={role}",
+                "--condition=None"
+            ]
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+            print(f"    ✔ Przypisano rolę {role}")
+        except Exception as e:
+            print(f"    [INFO] Status roli {role}: weryfikacja zakończona ({e})")
+
+    # 2. Dostęp READER na zbiorze danych BigQuery
+    try:
+        from google.cloud import bigquery
+        from google.cloud.bigquery import AccessEntry
+        bq_client = bigquery.Client(project=project_id, credentials=credentials)
+        dataset = bq_client.get_dataset(dataset_id)
+        current_entries = list(dataset.access_entries)
+        already_has_access = any(
+            entry.entity_id == sa_email and entry.role in ("READER", "WRITER", "OWNER")
+            for entry in current_entries
+        )
+        if not already_has_access:
+            current_entries.append(AccessEntry(role="READER", entity_type="userByEmail", entity_id=sa_email))
+            dataset.access_entries = current_entries
+            bq_client.update_dataset(dataset, ["access_entries"])
+            print(f"    ✔ Nadano uprawnienie READER na zbiorze BigQuery '{dataset_id}' dla {sa_email}")
+        else:
+            print(f"    ✔ Konto {sa_email} posiada już uprawnienia READER do zbioru BigQuery '{dataset_id}'")
+    except Exception as bqe:
+        print(f"    [INFO] Weryfikacja uprawnień zbioru BigQuery: {bqe}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Deploy Dynamic ADK Telemetry Agent to Vertex AI Agent Runtime & Gemini Enterprise")
-    parser.add_argument("--project", default=os.environ.get("GOOGLE_CLOUD_PROJECT", "dprzek-prod"), help="Google Cloud Project ID")
-    parser.add_argument("--engine", default=os.environ.get("GEMINI_ENGINE_ID", "test-test-test"), help="Discovery Engine / Gemini Enterprise Engine ID")
+    default_proj = os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("PROJECT_ID")
+    if not default_proj:
+        try:
+            _, default_proj = google.auth.default()
+        except Exception:
+            default_proj = ""
+    default_engine = os.environ.get("GEMINI_ENGINE_ID", "")
+    parser.add_argument("--project", default=default_proj, required=not bool(default_proj), help="Google Cloud Project ID")
+    parser.add_argument("--engine", default=default_engine, required=not bool(default_engine), help="Discovery Engine / Gemini Enterprise Engine ID")
     parser.add_argument("--location", default="eu", help="Gemini Enterprise Location (eu, global, us)")
     parser.add_argument("--vertex-location", default="europe-west1", help="Vertex AI Reasoning Engine Location (europe-west1, europe-west4)")
     parser.add_argument("--dataset", default="gemini_enterprise_telemetry", help="BigQuery Dataset ID")
@@ -228,7 +287,10 @@ def main():
         staging_bucket=staging_bucket
     )
 
-    # 3. Wdrażanie Agenta do Vertex AI Reasoning Engine
+    # 3. Zapewnienie uprawnień IAM dla konta Reasoning Engine
+    ensure_reasoning_engine_permissions(args.project, project_number, args.dataset, credentials)
+
+    # 4. Wdrażanie Agenta do Vertex AI Reasoning Engine
     print(f"[*] Wdrażanie Agenta ADK do Vertex AI Reasoning Engine...")
     print(f"    Agent: {root_agent.name} (Narzędzia: {len(root_agent.tools)})")
     

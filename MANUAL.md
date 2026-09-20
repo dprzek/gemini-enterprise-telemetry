@@ -193,13 +193,27 @@ gcloud monitoring dashboards create \
   --project=<PROJECT_ID>
 ```
 
-### Krok 5.6: Wdrożenie Dynamicznego Agenta ADK (Vertex AI Agent Runtime)
+### Krok 5.6: Wdrożenie Dynamicznego Agenta ADK (Vertex AI Agent Runtime) i Współdzielenie
+Wdraża Agenta ADK do Vertex AI Reasoning Engine i rejestruje go w Gemini Enterprise z uprawnieniem współdzielenia dla wszystkich użytkowników (`ALL_USERS`):
 ```bash
 python3 agent/deploy_adk_agent.py \
   --project="<PROJECT_ID>" \
   --location="<LOCATION>" \
   --vertex-location="europe-west1" \
-  --engine="<ENGINE_ID>"
+  --engine="<ENGINE_ID>" \
+  --dataset="gemini_enterprise_telemetry"
+```
+
+#### Nadanie Uprawnień Użytkownikom w Projekcie GCP:
+Aby pracownicy mogli logować się do aplikacji Gemini Enterprise i widzieć Agenta Telemetrii, administrator przypisuje im role IAM:
+```bash
+gcloud projects add-iam-policy-binding <PROJECT_ID> \
+  --member="user:uzytkownik@twoja-firma.com" \
+  --role="roles/discoveryengine.user"
+
+gcloud projects add-iam-policy-binding <PROJECT_ID> \
+  --member="user:uzytkownik@twoja-firma.com" \
+  --role="roles/discoveryengine.agentspaceUser"
 ```
 
 ---
@@ -327,3 +341,47 @@ Poniższa tabela odzwierciedla oficjalne limity kwotowe Google Cloud dla edycji 
 | **Generowanie Wideo** | 2 / user / dzień | 3 / user / dzień | Północ PT | Pula Organizacji |
 | **Narzędzia AI Dev (WTU)**| $10 / user / cykl | $15 / user / cykl | Kroczące okno 7-dniowe | Pula Organizacji |
 | **Pojemność i Indeksowanie**| 30 GiB / user | 75 GiB / user | Ciągła pula regionalna | Projekt / Region |
+
+---
+
+## 8. Procedura Walidacji i Pakiet 15 Scenariuszy Testowych
+
+Po wdrożeniu potoku i agenta w środowisku klienta, administrator może zweryfikować całe środowisko uruchamiając zautomatyzowany pakiet 15 testów:
+
+```bash
+python3 -m unittest discover -s tests -p "test_suite.py" -v
+```
+
+### Zestawienie 15 Scenariuszy Testowych:
+
+1. **Test 1: Syntaktyka i Czystość Kodu Pythona (Multi-Tenant Hygiene)**
+   - Weryfikuje kompilację plików Pythona i brak hardkodowanych ID projektów / klientów.
+2. **Test 2: Rozpoznawanie Silnika i Odporność na Błędy Nazewnictwa**
+   - Sprawdza dynamiczne rozwiązywanie silników Discovery Engine na podstawie nazwy lub prefiksu.
+3. **Test 3: Automatyczna Konfiguracja Uprawnień IAM Konta Reasoning Engine**
+   - Bada czy konto `service-{PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com` posiada role `bigquery.jobUser`, `monitoring.viewer` i dostęp `READER` do tabel BigQuery.
+4. **Test 4: Idempotentność i Schemat Tabel BigQuery (Partycjonowanie po dacie)**
+   - Potwierdza partycjonowanie dzienne po polu `timestamp` w tabelach telemetrii.
+5. **Test 5: Idempotentna Wsteczna Ingestja (Backfill Parsing & Idempotency)**
+   - Sprawdza parser zdarzeń audytowych, aktywności użytkowników oraz operacji inferencji tokenów.
+6. **Test 6: Kompilacja i Parametryzacja Widoków BigQuery (SQL DDL Dry-Run)**
+   - Potwierdza poprawność zapytań DDL 6 widoków analitycznych SQL.
+7. **Test 7: Spójność Matematyczna Metryk (Niezmienniki Sum Zdarzeń i Tokenów)**
+   - Weryfikuje reguły spójności: $\text{Zdarzenia} \ge \text{Zapytania} + \text{Deep Research} + \text{Agenty}$ oraz $\text{Tokeny} = \text{Input} + \text{Output}$.
+8. **Test 8: Precyzja Przypisywania Tokenów po Śladach OTel (Zero Double-Counting)**
+   - Potwierdza brak duplikatów i iloczynu kartezjańskiego w korelacji logów.
+9. **Test 9: Rygorystyczna Separacja Funkcjonalności (Deep Research vs Zapytania)**
+   - Weryfikuje prawidłową kategoryzację modułów Gemini Enterprise.
+10. **Test 10: Integracja Metryk Cloud Monitoring i Tras OpenTelemetry**
+    - Potwierdza pobieranie limitów kwotowych i okien śladów OpenTelemetry.
+11. **Test 11: Walidacja Agenta ADK (`google.adk.agents.Agent`) i Serializacja Cloudpickle**
+    - Potwierdza strukturę agenta ADK, obecność 5 dynamicznych narzędzi i binarną serializację dla Agent Runtime.
+12. **Test 12: Weryfikacja Wdrożenia Vertex AI Reasoning Engine (Serving State)**
+    - Sprawdza dostępność i stan wdrożonego zasobu Reasoning Engine w Vertex AI (`europe-west1`).
+13. **Test 13: Rejestracja i Współdzielenie Agenta w Gemini Enterprise (`sharingConfig: ALL_USERS`)**
+    - Bada czy agent w Discovery Engine jest w stanie `ENABLED` z konfiguracją udostępnienia `ALL_USERS`.
+14. **Test 14: Dynamiczne Zapytanie Per-User i Filtrowanie po Dniach (Live Tool Invocation)**
+    - Wykonuje zapytanie BigQuery dla użytkowników weryfikując dzienne rekordy utylizacji w czasie rzeczywistym.
+15. **Test 15: Dynamiczne Zapytanie o Trendy Adopcji i Porównanie Użytkowników (Multi-User Ranking)**
+    - Wykonuje zapytania agregujące rankingi adopcji w skali całej organizacji.
+
