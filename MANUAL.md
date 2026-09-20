@@ -386,3 +386,29 @@ python3 -m unittest discover -s tests -p "test_suite.py" -v
 15. **Test 15: Dynamiczne Zapytanie o Trendy Adopcji i Porównanie Użytkowników (Multi-User Ranking)**
     - Wykonuje zapytania agregujące rankingi adopcji w skali całej organizacji.
 
+---
+
+## 8. Rozwiązywanie Problemów (Troubleshooting & Self-Healing)
+
+### Błąd 400 w Gemini Enterprise: `Reasoning Engine stream closed cleanly without producing any events`
+
+#### Objaw:
+W interfejsie webowym Gemini Enterprise przy próbie wysłania wiadomości do Agenta Telemetrii pojawia się komunikat:
+```text
+Agent returned an error (400): Agent failed with error: Reasoning Engine stream closed cleanly without producing any events (reasoning_engine=projects/.../locations/europe-west1/reasoningEngines/..., attempt=3/3)
+```
+
+#### Diagnoza i Przyczyna Źródłowa:
+Podczas wywołania metody `streaming_agent_run_with_events()` (wykorzystywanej przez Gemini Enterprise AgentSpace) w kontenerze Vertex AI Reasoning Engine uruchamiana jest metoda runnera ADK (`google/adk/runners.py`). Sprawdza ona atrybut trybu pracy agenta: `if self.agent.mode is None: self.agent.mode = 'chat'`.
+Jeśli obiekt agenta został zserializowany w środowisku klienta (np. starym obrazie Cloud Shell lub z inną wersją `google-adk`), w modelu Pydantic brakowało pola `mode`, co generowało błąd `AttributeError: 'LlmAgent' object has no attribute 'mode'` i zwrot zdarzenia o kodzie błędu 498. Ponieważ strumień nie zawierał treści tekstowej, Gemini Enterprise przerywało wywołanie błędem 400.
+
+#### Automatyczne Rozwiązanie (Self-Healing w Instalatorze):
+1. **Jawna deklaracja trybu**: W `agent/adk_telemetry_agent.py` obiekt `root_agent` ma jawnie zdefiniowany parametr `mode="chat"`, co gwarantuje jego obecność w słowniku atrybutów Pydantic i deserializację bez względu na środowisko.
+2. **Synchronizacja zależności klienta**: Skrypty `deploy.sh` i `deploy.py` przed serializacją automatycznie instalują i weryfikują biblioteki wykonawcze (`google-adk==2.9.0`, `google-api-core==2.35.0`).
+3. **Automatyczny Health-Check**: Podczas wdrożenia skrypt sprawdza istniejący Reasoning Engine wykonując testowe wywołanie `streaming_agent_run_with_events()`. Jeśli silnik zgłasza błąd (np. kod 498 lub brak atrybutu), instalator automatycznie odrzuca uszkodzoną instancję i wdraża nową, w pełni sprawną wersję.
+4. **Wymuszone odtworzenie (`--recreate`)**: W razie potrzeby wymuszenia natychmiastowej rekompilacji kontenera można użyć flagi:
+   ```bash
+   ./deploy.sh <ENGINE_ID> --recreate
+   ```
+
+

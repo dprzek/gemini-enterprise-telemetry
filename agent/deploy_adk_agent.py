@@ -290,6 +290,7 @@ def main():
     parser.add_argument("--vertex-location", default="europe-west1", help="Vertex AI Reasoning Engine Location (europe-west1, europe-west4)")
     parser.add_argument("--dataset", default="gemini_enterprise_telemetry", help="BigQuery Dataset ID")
     parser.add_argument("--reasoning-engine", default=None, help="Existing Vertex AI Reasoning Engine resource name to reuse")
+    parser.add_argument("--recreate", action="store_true", help="Wymusza utworzenie nowego Reasoning Engine nawet jeśli istnieje stary")
     args = parser.parse_args()
 
     engine_input = args.engine_id_flag or args.engine
@@ -325,7 +326,7 @@ def main():
 
     # 4. Wdrażanie Agenta do Vertex AI Reasoning Engine
     engine_resource_name = args.reasoning_engine
-    if not engine_resource_name:
+    if not engine_resource_name and not args.recreate:
         from vertexai.preview import reasoning_engines as re_preview
         try:
             candidate_engines = list(re_preview.ReasoningEngine.list())
@@ -334,14 +335,32 @@ def main():
                 if ce.display_name == "Gemini Enterprise Telemetry & Adoption Engine"
             ]
             if matching:
-                engine_resource_name = matching[0].resource_name
-                print(f"[*] Wykryto istniejący Vertex AI Reasoning Engine w projekcie: {engine_resource_name}")
+                candidate_name = matching[0].resource_name
+                print(f"[*] Wykryto istniejący Vertex AI Reasoning Engine: {candidate_name}")
+                print(f"    Weryfikacja kondycji operacyjnej (health-check)...")
+                try:
+                    test_re = agent_engines.get(candidate_name)
+                    import asyncio
+                    async def _verify():
+                        async for event in test_re.streaming_agent_run_with_events(request_json='{"message":{"parts":[{"text":"ping"}]}}'):
+                            if isinstance(event, dict) and (event.get('code') or event.get('errorCode')):
+                                raise RuntimeError(event.get('message') or event.get('errorMessage'))
+                            break
+                    asyncio.run(_verify())
+                    engine_resource_name = candidate_name
+                    print(f"    ✔ Istniejący Reasoning Engine działa poprawnie i odpowiada na zapytania.")
+                except Exception as test_err:
+                    print(f"    [!] Istniejący Reasoning Engine zgłasza błąd ({test_err}).")
+                    print(f"        Automatyczne wdrożenie nowej, poprawionej wersji...")
+                    engine_resource_name = None
         except Exception:
             pass
 
     if not engine_resource_name:
         print(f"[*] Wdrażanie Agenta ADK do Vertex AI Reasoning Engine...")
-        print(f"    Agent: {root_agent.name} (Narzędzia: {len(root_agent.tools)})")
+        if hasattr(root_agent, 'mode') and root_agent.mode is None:
+            root_agent.mode = 'chat'
+        print(f"    Agent: {root_agent.name} (Narzędzia: {len(root_agent.tools)}, Mode: {getattr(root_agent, 'mode', 'default')})")
         
         os.environ["BIGQUERY_PROJECT"] = args.project
         os.environ["BIGQUERY_DATASET"] = args.dataset

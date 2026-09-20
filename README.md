@@ -23,6 +23,9 @@ cd gemini-enterprise-telemetry
 
 # Alternatywnie z jawną flagą --engine (lub --engine-id):
 ./deploy.sh --engine ge-dprzek_1789915910154 --project ge-test-dprzek --location eu
+
+# Wymuszenie ponownego wdrożenia Agenta (np. przy aktualizacji kodu):
+./deploy.sh ge-dprzek_1789915910154 --recreate
 ```
 
 > [!NOTE]

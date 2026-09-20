@@ -353,6 +353,7 @@ def get_observability_traces(days: int = 1) -> str:
 root_agent = Agent(
     name="gemini_enterprise_telemetry_agent",
     model="gemini-2.5-flash",
+    mode="chat",
     instruction="""Jesteś dedykowanym agentem telemetrii, obserwowalności i adopcji w Gemini Enterprise ("Gemini Enterprise Telemetry & Adoption Agent").
 Twój cel to dynamiczne i precyzyjne odpowiadanie na pytania administratorów oraz użytkowników dotyczące:
 1. Aktywności konkretnych użytkowników (liczba zapytań, wygenerowane obrazy, tokeny wejściowe i wyjściowe, podział na poszczególne dni, czas odpowiedzi).

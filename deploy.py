@@ -274,7 +274,27 @@ def deploy_monitoring_dashboard(project_id):
     except Exception as e:
         print(f"    (Dashboard Cloud Monitoring: {e})")
 
-def deploy_telemetry_agent(project_id, location, engine_id, dataset_id="gemini_enterprise_telemetry", reasoning_engine=None):
+def ensure_client_dependencies():
+    """Weryfikuje i synchronizuje wersje bibliotek wykonawczych z Vertex AI Agent Runtime."""
+    try:
+        import google.adk
+        import google.api_core
+        if google.adk.__version__ == "2.9.0" and google.api_core.__version__ == "2.35.0":
+            return
+    except Exception:
+        pass
+    print("[*] Synchronizacja wersji bibliotek wykonawczych z Vertex AI Agent Runtime (google-adk==2.9.0)...")
+    try:
+        subprocess.run([
+            sys.executable, "-m", "pip", "install", "--quiet", "--upgrade",
+            "google-adk==2.9.0", "google-api-core==2.35.0",
+            "google-cloud-aiplatform>=1.70.0", "google-cloud-bigquery>=3.25.0",
+            "google-cloud-monitoring>=2.21.0", "cloudpickle>=3.0.0"
+        ], check=False)
+    except Exception:
+        pass
+
+def deploy_telemetry_agent(project_id, location, engine_id, dataset_id="gemini_enterprise_telemetry", reasoning_engine=None, recreate=False):
     """Wdraża dynamicznego Agenta ADK w Vertex AI Agent Runtime i rejestruje w Gemini Enterprise."""
     print("--> [7/7] Wdrażanie Agenta Telemetrii w Gemini Enterprise (Dynamic ADK Agent na Vertex AI Agent Runtime)...")
     agent_script = os.path.join(os.path.dirname(__file__), "agent", "deploy_adk_agent.py")
@@ -287,9 +307,12 @@ def deploy_telemetry_agent(project_id, location, engine_id, dataset_id="gemini_e
     ]
     if reasoning_engine:
         cmd.append(f"--reasoning-engine={reasoning_engine}")
+    if recreate:
+        cmd.append("--recreate")
     subprocess.run(cmd, check=True)
 
 def main():
+    ensure_client_dependencies()
     parser = argparse.ArgumentParser(description="Zintegrowany Instalator Potoku Telemetrii Gemini Enterprise")
     parser.add_argument("engine", nargs="?", default=None, help="Identyfikator silnika (Engine ID, np. ge-dprzek_1789915910154) lub przyjazna nazwa aplikacji")
     parser.add_argument("--project", "-p", default=None, help="ID Projektu Google Cloud")
@@ -299,6 +322,7 @@ def main():
     parser.add_argument("--dataset", "-d", default="gemini_enterprise_telemetry", help="ID zbioru BigQuery")
     parser.add_argument("--skip-backfill", action="store_true", help="Pomiń wsteczną ingestję logów")
     parser.add_argument("--reasoning-engine", default=None, help="Istniejący zasób Vertex AI Reasoning Engine do ponownego użycia")
+    parser.add_argument("--recreate", action="store_true", help="Wymusza utworzenie nowego Reasoning Engine nawet jeśli istnieje stary")
     args = parser.parse_args()
 
     project_id = args.project or os.environ.get("GOOGLE_CLOUD_PROJECT") or get_default_project()
@@ -347,7 +371,7 @@ def main():
     deploy_monitoring_dashboard(project_id)
 
     # 7. Agent Gemini Enterprise
-    deploy_telemetry_agent(project_id, location, engine_id, dataset_id, reasoning_engine=args.reasoning_engine)
+    deploy_telemetry_agent(project_id, location, engine_id, dataset_id, reasoning_engine=args.reasoning_engine, recreate=args.recreate)
 
     print("\n======================================================================")
     print("✔ Wdrożenie zakończone pełnym sukcesem! Wszystkie komponenty są aktywne.")
