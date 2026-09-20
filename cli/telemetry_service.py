@@ -99,6 +99,7 @@ class TelemetryService:
             SUM(total_events) AS total_events,
             SUM(assistant_queries) AS assistant_queries,
             SUM(deep_research_count) AS deep_research_count,
+            SUM(images_generated) AS images_generated,
             SUM(agents_created) AS agents_created,
             SUM(agent_updates) AS agent_updates,
             SUM(ui_page_views) AS ui_page_views,
@@ -122,6 +123,7 @@ class TelemetryService:
                 "total_events": row.total_events,
                 "assistant_queries": row.assistant_queries,
                 "deep_research_count": row.deep_research_count,
+                "images_generated": row.images_generated,
                 "agents_created": row.agents_created,
                 "agent_updates": row.agent_updates,
                 "ui_page_views": row.ui_page_views,
@@ -156,6 +158,7 @@ class TelemetryService:
             total_events,
             assistant_queries,
             deep_research_count,
+            images_generated,
             agents_created,
             agent_updates,
             ui_page_views,
@@ -178,6 +181,7 @@ class TelemetryService:
                 "total_events": row.total_events,
                 "assistant_queries": row.assistant_queries,
                 "deep_research_count": row.deep_research_count,
+                "images_generated": row.images_generated,
                 "agents_created": row.agents_created,
                 "agent_updates": row.agent_updates,
                 "ui_page_views": row.ui_page_views,
@@ -203,6 +207,7 @@ class TelemetryService:
             total_interactions,
             total_assistant_queries,
             total_deep_research_queries,
+            total_images_generated,
             total_agents_created,
             total_tokens_burned
         FROM `{self.project_id}.{self.dataset_id}.v_daily_adoption`
@@ -218,6 +223,7 @@ class TelemetryService:
                 "total_interactions": row.total_interactions,
                 "total_assistant_queries": row.total_assistant_queries,
                 "total_deep_research_queries": row.total_deep_research_queries,
+                "total_images_generated": row.total_images_generated,
                 "total_agents_created": row.total_agents_created,
                 "total_tokens_burned": row.total_tokens_burned,
             })

@@ -44,14 +44,37 @@ raw_user_events AS (
          AND jsonPayload.response IS NOT NULL THEN 1 
         ELSE 0 
       END AS is_deep_research,
-      CASE 
+      CASE
         WHEN jsonPayload.logmetadata.methodname IN ("StreamAssist", "Assist")
+         AND (
+           COALESCE(jsonPayload.request.userevent.agentspaceinfo.agentspacepagetype, "") = "image-generation"
+           OR EXISTS (
+             SELECT 1 
+             FROM UNNEST(COALESCE(jsonPayload.request.query.parts, [])) p 
+             WHERE REGEXP_CONTAINS(LOWER(p.text), r"(wygeneruj|stwórz|utwórz|zrób|generuj|generate|create|draw|narysuj|namaluj|paint)\s+(obraz|obrazek|grafik|zdjęci|image|picture|photo|illustration)")
+                OR REGEXP_CONTAINS(LOWER(p.text), r"^(obrazek|obraz|image|zdjęcie)\s+")
+           )
+         )
+         AND (jsonPayload.status.code IS NULL OR jsonPayload.status.code = 0) THEN 1
+        ELSE 0
+      END AS is_image_generation,
+      CASE 
+        WHEN jsonPayload.logmetadata.methodname IN ("StreamAssist", "Assist") 
          AND NOT (
            COALESCE(jsonPayload.response.agentinfo.agent, "") LIKE "%/agents/deep_research"
            OR EXISTS (
              SELECT 1 
              FROM UNNEST(COALESCE(jsonPayload.request.agentsspec.agentspecs, [])) s 
              WHERE s.agentid = "deep_research"
+           )
+         )
+         AND NOT (
+           COALESCE(jsonPayload.request.userevent.agentspaceinfo.agentspacepagetype, "") = "image-generation"
+           OR EXISTS (
+             SELECT 1 
+             FROM UNNEST(COALESCE(jsonPayload.request.query.parts, [])) p 
+             WHERE REGEXP_CONTAINS(LOWER(p.text), r"(wygeneruj|stwórz|utwórz|zrób|generuj|generate|create|draw|narysuj|namaluj|paint)\s+(obraz|obrazek|grafik|zdjęci|image|picture|photo|illustration)")
+                OR REGEXP_CONTAINS(LOWER(p.text), r"^(obrazek|obraz|image|zdjęcie)\s+")
            )
          )
          AND (jsonPayload.status.code IS NULL OR jsonPayload.status.code = 0) THEN 1 
@@ -98,9 +121,15 @@ raw_user_events AS (
          AND (agent_id = "deep_research" OR raw_payload LIKE "%agents/deep_research%") THEN 1 
         ELSE 0 
       END AS is_deep_research,
+      CASE
+        WHEN method_name IN ("StreamAssist", "Assist")
+         AND (page_type = "image-generation" OR raw_payload LIKE "%image%") THEN 1
+        ELSE 0
+      END AS is_image_generation,
       CASE 
         WHEN method_name IN ("StreamAssist", "Assist") 
-         AND NOT (agent_id = "deep_research" OR raw_payload LIKE "%agents/deep_research%") THEN 1 
+         AND NOT (agent_id = "deep_research" OR raw_payload LIKE "%agents/deep_research%")
+         AND NOT (page_type = "image-generation" OR raw_payload LIKE "%image%") THEN 1 
         ELSE 0 
       END AS is_assistant_query,
       CASE
@@ -127,6 +156,7 @@ aggregated_user_events AS (
     COUNT(*) AS total_events,
     SUM(is_assistant_query) AS assistant_queries,
     COALESCE(COUNT(DISTINCT CASE WHEN is_deep_research = 1 THEN session_id END), 0) AS deep_research_count,
+    SUM(is_image_generation) AS images_generated,
     SUM(is_custom_agent_created) AS agents_created,
     COUNTIF(method_name = "UpdateAgent") AS agent_updates,
     COUNTIF(method_name = "WriteUserEvent") AS ui_page_views,
@@ -150,7 +180,8 @@ raw_audit AS (
     COALESCE(resource_name, protopayload_auditlog.resourceName, "") AS resource_name,
     CASE 
       WHEN COALESCE(method_name, protopayload_auditlog.methodName, "") LIKE "%CreateAgent%"
-       AND NOT COALESCE(resource_name, protopayload_auditlog.resourceName, "") LIKE "%/agents/deep_research" THEN 1 
+       AND NOT COALESCE(resource_name, protopayload_auditlog.resourceName, "") LIKE "%/agents/deep_research"
+       AND COALESCE(protopayload_auditlog.status.code, 0) = 0 THEN 1 
       ELSE 0 
     END AS is_custom_agent_created
   FROM `{project_id}.{dataset_id}.cloudaudit_googleapis_com_activity`
@@ -228,6 +259,7 @@ SELECT
   COALESCE(u.total_events, a.audit_events, 0) AS total_events,
   COALESCE(u.assistant_queries, 0) AS assistant_queries,
   COALESCE(u.deep_research_count, 0) AS deep_research_count,
+  COALESCE(u.images_generated, 0) AS images_generated,
   GREATEST(COALESCE(u.agents_created, 0), COALESCE(a.agents_created, 0)) AS agents_created,
   COALESCE(u.agent_updates, 0) AS agent_updates,
   COALESCE(u.ui_page_views, 0) AS ui_page_views,
@@ -266,6 +298,7 @@ SELECT
   SUM(total_events) AS total_events,
   SUM(assistant_queries) AS assistant_queries,
   SUM(deep_research_count) AS deep_research_count,
+  SUM(images_generated) AS images_generated,
   SUM(agents_created) AS agents_created,
   SUM(agent_updates) AS agent_updates,
   SUM(ui_page_views) AS ui_page_views,
@@ -287,6 +320,7 @@ SELECT
   SUM(total_events) AS total_interactions,
   SUM(assistant_queries) AS total_assistant_queries,
   SUM(deep_research_count) AS total_deep_research_queries,
+  SUM(images_generated) AS total_images_generated,
   SUM(agents_created) AS total_agents_created,
   SUM(agent_updates) AS total_agent_updates,
   SUM(ui_page_views) AS total_ui_page_views,
@@ -322,6 +356,16 @@ FROM (
            WHERE s.agentid = "deep_research"
          )
        ) THEN "Deep Research"
+      WHEN jsonPayload.logmetadata.methodname IN ("StreamAssist", "Assist")
+       AND (
+         COALESCE(jsonPayload.request.userevent.agentspaceinfo.agentspacepagetype, "") = "image-generation"
+         OR EXISTS (
+           SELECT 1 
+           FROM UNNEST(COALESCE(jsonPayload.request.query.parts, [])) p 
+           WHERE REGEXP_CONTAINS(LOWER(p.text), r"(wygeneruj|stwórz|utwórz|zrób|generuj|generate|create|draw|narysuj|namaluj|paint)\s+(obraz|obrazek|grafik|zdjęci|image|picture|photo|illustration)")
+              OR REGEXP_CONTAINS(LOWER(p.text), r"^(obrazek|obraz|image|zdjęcie)\s+")
+         )
+       ) THEN "Image Generation (Imagen)"
       WHEN jsonPayload.logmetadata.methodname IN ("StreamAssist", "Assist") THEN "General Assistant"
       WHEN jsonPayload.logmetadata.methodname = "CreateAgent" THEN "Custom Agent Creation"
       WHEN jsonPayload.logmetadata.methodname = "UpdateAgent" THEN "Custom Agent Edit"
@@ -343,6 +387,8 @@ FROM (
     CASE
       WHEN method_name IN ("StreamAssist", "Assist") 
        AND (agent_id = "deep_research" OR raw_payload LIKE "%agents/deep_research%") THEN "Deep Research"
+      WHEN method_name IN ("StreamAssist", "Assist") 
+       AND (page_type = "image-generation" OR raw_payload LIKE "%image%") THEN "Image Generation (Imagen)"
       WHEN method_name IN ("StreamAssist", "Assist") THEN "General Assistant"
       WHEN method_name = "CreateAgent" THEN "Custom Agent Creation"
       WHEN method_name = "UpdateAgent" THEN "Custom Agent Edit"
