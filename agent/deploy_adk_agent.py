@@ -261,6 +261,7 @@ def main():
     parser.add_argument("--location", default="eu", help="Gemini Enterprise Location (eu, global, us)")
     parser.add_argument("--vertex-location", default="europe-west1", help="Vertex AI Reasoning Engine Location (europe-west1, europe-west4)")
     parser.add_argument("--dataset", default="gemini_enterprise_telemetry", help="BigQuery Dataset ID")
+    parser.add_argument("--reasoning-engine", default=None, help="Existing Vertex AI Reasoning Engine resource name to reuse")
     args = parser.parse_args()
 
     credentials, _ = google.auth.default()
@@ -291,29 +292,49 @@ def main():
     ensure_reasoning_engine_permissions(args.project, project_number, args.dataset, credentials)
 
     # 4. Wdrażanie Agenta do Vertex AI Reasoning Engine
-    print(f"[*] Wdrażanie Agenta ADK do Vertex AI Reasoning Engine...")
-    print(f"    Agent: {root_agent.name} (Narzędzia: {len(root_agent.tools)})")
-    
-    os.environ["BIGQUERY_PROJECT"] = args.project
-    os.environ["BIGQUERY_DATASET"] = args.dataset
+    engine_resource_name = args.reasoning_engine
+    if not engine_resource_name:
+        print(f"[*] Wdrażanie Agenta ADK do Vertex AI Reasoning Engine...")
+        print(f"    Agent: {root_agent.name} (Narzędzia: {len(root_agent.tools)})")
+        
+        os.environ["BIGQUERY_PROJECT"] = args.project
+        os.environ["BIGQUERY_DATASET"] = args.dataset
 
-    engine = agent_engines.create(
-        agent_engine=root_agent,
-        display_name="Gemini Enterprise Telemetry & Adoption Engine",
-        description="Managed ADK Agent Runtime for Gemini Enterprise Telemetry & Adoption",
-        env_vars={
-            "BIGQUERY_PROJECT": args.project,
-            "BIGQUERY_DATASET": args.dataset,
-        },
-        requirements=[
-            "google-cloud-aiplatform[agent_engines,adk]>=1.88.0",
-            "google-adk>=2.9.0",
-            "google-cloud-bigquery>=3.25.0",
-            "google-cloud-monitoring>=2.21.0",
-        ]
-    )
-    print(f"[OK] Vertex AI Reasoning Engine wdrożony!")
-    print(f"     Resource: {engine.resource_name}")
+        try:
+            engine = agent_engines.create(
+                agent_engine=root_agent,
+                display_name="Gemini Enterprise Telemetry & Adoption Engine",
+                description="Managed ADK Agent Runtime for Gemini Enterprise Telemetry & Adoption",
+                env_vars={
+                    "BIGQUERY_PROJECT": args.project,
+                    "BIGQUERY_DATASET": args.dataset,
+                },
+                requirements=[
+                    "google-cloud-aiplatform[agent_engines,adk]>=1.88.0",
+                    "google-adk>=2.9.0",
+                    "google-cloud-bigquery>=3.25.0",
+                    "google-cloud-monitoring>=2.21.0",
+                ]
+            )
+            engine_resource_name = engine.resource_name
+            print(f"[OK] Vertex AI Reasoning Engine wdrożony!")
+            print(f"     Resource: {engine_resource_name}")
+        except Exception as e:
+            print(f"[WARN] Wystąpił błąd lub timeout podczas oczekiwania na create(): {e}")
+            print(f"[*] Weryfikacja czy Reasoning Engine został pomyślnie utworzony na Vertex AI...")
+            from vertexai.preview import reasoning_engines as re_preview
+            candidate_engines = list(re_preview.ReasoningEngine.list())
+            matching = [
+                ce for ce in candidate_engines 
+                if ce.display_name == "Gemini Enterprise Telemetry & Adoption Engine"
+            ]
+            if matching:
+                engine_resource_name = matching[0].resource_name
+                print(f"    ✔ Wykryto aktywny Reasoning Engine na platformie Vertex AI: {engine_resource_name}")
+            else:
+                raise
+    else:
+        print(f"[*] Użycie wskazanego Reasoning Engine: {engine_resource_name}")
 
     # 4. Usunięcie starych instancji agenta w Gemini Enterprise
     print(f"[*] Czyszczenie poprzednich instancji agenta w Gemini Enterprise...")
@@ -326,7 +347,7 @@ def main():
         project_number,
         args.location,
         engine_id,
-        engine.resource_name,
+        engine_resource_name,
         credentials
     )
 
@@ -335,7 +356,7 @@ def main():
     print(f"============================================================")
     print(f"  Agent:           {res.get('displayName')}")
     print(f"  Gemini Agent ID: {res.get('name')}")
-    print(f"  Reasoning Engine:{engine.resource_name}")
+    print(f"  Reasoning Engine:{engine_resource_name}")
     print(f"  Status:          {res.get('state')}")
     print(f"============================================================")
 

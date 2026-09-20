@@ -195,7 +195,7 @@ def deploy_monitoring_dashboard(project_id):
     except Exception as e:
         print(f"    (Dashboard Cloud Monitoring: {e})")
 
-def deploy_telemetry_agent(project_id, location, engine_id, dataset_id="gemini_enterprise_telemetry"):
+def deploy_telemetry_agent(project_id, location, engine_id, dataset_id="gemini_enterprise_telemetry", reasoning_engine=None):
     """Wdraża dynamicznego Agenta ADK w Vertex AI Agent Runtime i rejestruje w Gemini Enterprise."""
     print("--> [6/6] Wdrażanie Agenta Telemetrii w Gemini Enterprise (Dynamic ADK Agent na Vertex AI Agent Runtime)...")
     agent_script = os.path.join(os.path.dirname(__file__), "agent", "deploy_adk_agent.py")
@@ -206,6 +206,8 @@ def deploy_telemetry_agent(project_id, location, engine_id, dataset_id="gemini_e
         f"--engine={engine_id}",
         f"--dataset={dataset_id}"
     ]
+    if reasoning_engine:
+        cmd.append(f"--reasoning-engine={reasoning_engine}")
     subprocess.run(cmd, check=True)
 
 def main():
@@ -216,6 +218,7 @@ def main():
     parser.add_argument("--engine", "-e", dest="engine_flag", default=None, help="Nazwa aplikacji lub identyfikator silnika")
     parser.add_argument("--dataset", "-d", default="gemini_enterprise_telemetry", help="ID zbioru BigQuery")
     parser.add_argument("--skip-backfill", action="store_true", help="Pomiń wsteczną ingestję logów")
+    parser.add_argument("--reasoning-engine", default=None, help="Istniejący zasób Vertex AI Reasoning Engine do ponownego użycia")
     args = parser.parse_args()
 
     project_id = args.project or os.environ.get("GOOGLE_CLOUD_PROJECT") or get_default_project()
@@ -260,7 +263,7 @@ def main():
     deploy_monitoring_dashboard(project_id)
 
     # 6. Agent Gemini Enterprise
-    deploy_telemetry_agent(project_id, location, engine_id, dataset_id)
+    deploy_telemetry_agent(project_id, location, engine_id, dataset_id, reasoning_engine=args.reasoning_engine)
 
     print("\n======================================================================")
     print("✔ Wdrożenie zakończone pełnym sukcesem! Wszystkie komponenty są aktywne.")

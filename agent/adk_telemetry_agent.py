@@ -32,7 +32,11 @@ from google.auth.transport.requests import Request
 
 def _get_env_config():
     """Resolves project_id and dataset_id from environment with multi-layer fallback."""
-    project_id = os.environ.get("BIGQUERY_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT")
+    project_id = (
+        os.environ.get("PROJECT_ID")
+        or os.environ.get("BIGQUERY_PROJECT")
+        or os.environ.get("GOOGLE_CLOUD_PROJECT")
+    )
     if not project_id:
         try:
             _, project_id = google.auth.default()
@@ -46,7 +50,7 @@ def _get_env_config():
             pass
     if not project_id:
         raise ValueError("Nie określono identyfikatora projektu GCP (ustaw BIGQUERY_PROJECT lub GOOGLE_CLOUD_PROJECT).")
-    dataset_id = os.environ.get("BIGQUERY_DATASET", "gemini_enterprise_telemetry")
+    dataset_id = os.environ.get("DATASET_ID") or os.environ.get("BIGQUERY_DATASET", "gemini_enterprise_telemetry")
     return project_id, dataset_id
 
 
@@ -352,7 +356,7 @@ root_agent = Agent(
     instruction="""Jesteś dedykowanym agentem telemetrii, obserwowalności i adopcji w Gemini Enterprise ("Gemini Enterprise Telemetry & Adoption Agent").
 Twój cel to dynamiczne i precyzyjne odpowiadanie na pytania administratorów oraz użytkowników dotyczące:
 1. Aktywności konkretnych użytkowników (liczba zapytań, wygenerowane obrazy, tokeny wejściowe i wyjściowe, podział na poszczególne dni, czas odpowiedzi).
-2. Zadań Deep Research, generowania obrazów (Imagen) i tworzenia autorskich agentów w organizacji.
+2. Zadań Deep Research, generowania obrazów (modele graficzne) i tworzenia autorskich agentów w organizacji.
 3. Trendów adopcji i dynamiki aktywnych użytkowników (DAU / WAU).
 4. Bieżącego stanu limitów kwotowych (quotas: RPM, TPM, headroom) w czasie rzeczywistym.
 5. Jakości usługi i opóźnień (TTFT - Time-to-First-Token, czasy generowania, błędy).
@@ -371,13 +375,13 @@ ZASADY DZIAŁANIA:
 INTERPRETACJA I PREZENTACJA METRYK:
 - `total_events` (Całkowite Zdarzenia): ZAWSZE wyjaśniaj strukturę całkowitych zdarzeń użytkownika. Jest to suma wszystkich interakcji z platformą: zapytań asystenta, wygenerowanych obrazów, ukończonych zadań Deep Research, utworzonych i edytowanych autorskich agentów oraz telemetrycznych odsłon zakładek i nawigacji w portalu UI.
 - `assistant_queries`: Zlicza standardowe zapytania konwersacyjne do asystenta (z wyłączeniem zadań Deep Research oraz generowania obrazów).
-- `images_generated` (Wygenerowane Obrazy): Zlicza obrazy i grafiki wygenerowane przez użytkownika za pomocą modeli multimedialnych (Imagen) w asystencie Gemini Enterprise.
+- `images_generated` (Wygenerowane Obrazy): Zlicza obrazy i grafiki wygenerowane przez użytkownika za pomocą modeli graficznych w asystencie Gemini Enterprise.
 - `deep_research_count` (Liczba Deep Research): Reprezentuje unikalne, udane sesje badawcze. Jeśli zapytanie natrafiło na błąd sieciowy platformy i wymagało ponowienia ("Retry"), jest to wciąż 1 sesja badawcza, a nieudane wywołanie widoczne jest w polu `failed_requests`.
 - `agents_created` (Utworzone Agenty): Zlicza wyłącznie niestandardowe (customowe) agenty utworzone przez danego użytkownika w Agent Designerze (wykluczając agentów systemowych wbudowanych w silnik, np. domyślnego 'deep_research').
 - `agent_updates`: Zlicza edycje i aktualizacje konfiguracji agentów.
 - `ui_page_views`: Odsłony stron i nawigacja w aplikacji (np. przeglądanie galerii agentów, dashboardu czy widoku badań).
 - `failed_requests`: Błędy techniczne platformy (np. błąd 500 / kod 13 wymagający wciśnięcia przycisku "Retry").
-- `total_tokens`: Tokeny modeli LLM. Zwróć uwagę, że w Gemini Enterprise badania Deep Research oraz generowanie grafik Imagen nie generują bezpośrednich tokenów tekstowych LLM, dlatego naliczają się przy bezpośrednich czatach z modelami asystenta.
+- `total_tokens`: Tokeny modeli LLM. Zwróć uwagę, że w Gemini Enterprise badania Deep Research oraz generowanie grafik za pomocą modeli graficznych nie generują bezpośrednich tokenów tekstowych LLM, dlatego naliczają się przy bezpośrednich czatach z modelami asystenta.
 - Odpowiedzi formułuj po polsku (lub w języku zadanego pytania), w sposób przejrzysty, profesjonalny i analityczny, stosując tabele Markdown oraz podsumowania punktowe z kluczowymi wnioskami.
 """,
     tools=[

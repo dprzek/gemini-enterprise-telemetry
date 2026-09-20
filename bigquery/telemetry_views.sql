@@ -97,7 +97,8 @@ raw_user_events AS (
         WHEN jsonPayload.status.code IS NOT NULL AND jsonPayload.status.code != 0 THEN 1
         ELSE 0
       END AS is_error_event,
-      insertId
+      insertId,
+      0 AS priority
     FROM `{project_id}.{dataset_id}.discoveryengine_googleapis_com_gemini_enterprise_user_activity`
 
     UNION ALL
@@ -123,13 +124,23 @@ raw_user_events AS (
       END AS is_deep_research,
       CASE
         WHEN method_name IN ("StreamAssist", "Assist")
-         AND (page_type = "image-generation" OR raw_payload LIKE "%image%") THEN 1
+         AND (
+           page_type = "image-generation" 
+           OR REGEXP_CONTAINS(LOWER(raw_payload), r"(wygeneruj|stwórz|utwórz|zrób|generuj|generate|create|draw|narysuj|namaluj|paint)\s+(obraz|obrazek|grafik|zdjęci|image|picture|photo|illustration)")
+           OR REGEXP_CONTAINS(LOWER(raw_payload), r"\"(obrazek|obraz|image|zdjęcie)\s+")
+           OR LOWER(raw_payload) LIKE "%image-generation%"
+         ) THEN 1
         ELSE 0
       END AS is_image_generation,
       CASE 
         WHEN method_name IN ("StreamAssist", "Assist") 
          AND NOT (agent_id = "deep_research" OR raw_payload LIKE "%agents/deep_research%")
-         AND NOT (page_type = "image-generation" OR raw_payload LIKE "%image%") THEN 1 
+         AND NOT (
+           page_type = "image-generation" 
+           OR REGEXP_CONTAINS(LOWER(raw_payload), r"(wygeneruj|stwórz|utwórz|zrób|generuj|generate|create|draw|narysuj|namaluj|paint)\s+(obraz|obrazek|grafik|zdjęci|image|picture|photo|illustration)")
+           OR REGEXP_CONTAINS(LOWER(raw_payload), r"\"(obrazek|obraz|image|zdjęcie)\s+")
+           OR LOWER(raw_payload) LIKE "%image-generation%"
+         ) THEN 1 
         ELSE 0 
       END AS is_assistant_query,
       CASE
@@ -141,12 +152,13 @@ raw_user_events AS (
         ELSE 0
       END AS is_custom_agent_created,
       0 AS is_error_event,
-      insert_id AS insertId
+      insert_id AS insertId,
+      1 AS priority
     FROM `{project_id}.{dataset_id}.gemini_enterprise_user_activity`
   )
   QUALIFY ROW_NUMBER() OVER(
     PARTITION BY COALESCE(NULLIF(insertId, ""), CONCAT(CAST(timestamp AS STRING), "_", method_name))
-    ORDER BY timestamp
+    ORDER BY priority ASC, timestamp ASC
   ) = 1
 ),
 aggregated_user_events AS (
@@ -369,7 +381,7 @@ FROM (
            WHERE REGEXP_CONTAINS(LOWER(p.text), r"(wygeneruj|stwórz|utwórz|zrób|generuj|generate|create|draw|narysuj|namaluj|paint)\s+(obraz|obrazek|grafik|zdjęci|image|picture|photo|illustration)")
               OR REGEXP_CONTAINS(LOWER(p.text), r"^(obrazek|obraz|image|zdjęcie)\s+")
          )
-       ) THEN "Image Generation (Imagen)"
+       ) THEN "Image Generation (Modele graficzne)"
       WHEN jsonPayload.logmetadata.methodname IN ("StreamAssist", "Assist") THEN "General Assistant"
       WHEN jsonPayload.logmetadata.methodname = "CreateAgent" THEN "Custom Agent Creation"
       WHEN jsonPayload.logmetadata.methodname = "UpdateAgent" THEN "Custom Agent Edit"
@@ -392,7 +404,12 @@ FROM (
       WHEN method_name IN ("StreamAssist", "Assist") 
        AND (agent_id = "deep_research" OR raw_payload LIKE "%agents/deep_research%") THEN "Deep Research"
       WHEN method_name IN ("StreamAssist", "Assist") 
-       AND (page_type = "image-generation" OR raw_payload LIKE "%image%") THEN "Image Generation (Imagen)"
+       AND (
+         page_type = "image-generation" 
+         OR REGEXP_CONTAINS(LOWER(raw_payload), r"(wygeneruj|stwórz|utwórz|zrób|generuj|generate|create|draw|narysuj|namaluj|paint)\s+(obraz|obrazek|grafik|zdjęci|image|picture|photo|illustration)")
+         OR REGEXP_CONTAINS(LOWER(raw_payload), r"\"(obrazek|obraz|image|zdjęcie)\s+")
+         OR LOWER(raw_payload) LIKE "%image-generation%"
+       ) THEN "Image Generation (Modele graficzne)"
       WHEN method_name IN ("StreamAssist", "Assist") THEN "General Assistant"
       WHEN method_name = "CreateAgent" THEN "Custom Agent Creation"
       WHEN method_name = "UpdateAgent" THEN "Custom Agent Edit"
