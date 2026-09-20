@@ -119,7 +119,8 @@ def ensure_required_apis(project_id):
         "logging.googleapis.com",
         "monitoring.googleapis.com",
         "cloudtrace.googleapis.com",
-        "cloudresourcemanager.googleapis.com"
+        "cloudresourcemanager.googleapis.com",
+        "cloudbuild.googleapis.com"
     ]
     print("--> [1/7] Weryfikacja i aktywacja wymaganych interfejsów API Google Cloud...")
     try:
@@ -131,12 +132,20 @@ def ensure_required_apis(project_id):
         missing = [api for api in required_apis if api not in enabled_services]
         if not missing:
             print("    ✔ Wszystkie wymagane API są już aktywne.")
-            return
-            
-        print(f"    Aktywacja {len(missing)} brakujących API: {', '.join(missing)} (proszę czekać)...")
-        cmd = ["gcloud", "services", "enable", *missing, f"--project={project_id}", "--quiet"]
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        print("    ✔ Wymagane API Google Cloud zostały aktywowane.")
+        else:
+            print(f"    Aktywacja {len(missing)} brakujących API: {', '.join(missing)} (proszę czekać)...")
+            cmd = ["gcloud", "services", "enable", *missing, f"--project={project_id}", "--quiet"]
+            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            print("    ✔ Wymagane API Google Cloud zostały aktywowane.")
+        
+        # Zapewnienie tożsamości usługi Vertex AI (Service Identity) dla nowych projektów
+        try:
+            subprocess.run(
+                ["gcloud", "beta", "services", "identity", "create", "--service=aiplatform.googleapis.com", f"--project={project_id}"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
+            )
+        except Exception:
+            pass
     except Exception as e:
         print(f"    (Weryfikacja API: {e})")
 

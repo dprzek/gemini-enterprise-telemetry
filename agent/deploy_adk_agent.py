@@ -217,6 +217,15 @@ def register_adk_agent_in_gemini(project_id, project_number, location, engine_id
 
 def ensure_reasoning_engine_permissions(project_id, project_number, dataset_id, credentials):
     """Automatycznie weryfikuje i nadaje uprawnienia IAM dla kont usługi Vertex Reasoning Engine."""
+    # 0. Zapewnij utworzenie tożsamości usługi Vertex AI (Service Identity) dla nowych projektów
+    try:
+        subprocess.run(
+            ["gcloud", "beta", "services", "identity", "create", "--service=aiplatform.googleapis.com", f"--project={project_id}"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
+        )
+    except Exception:
+        pass
+
     sa_emails = [
         f"service-{project_number}@gcp-sa-aiplatform-re.iam.gserviceaccount.com",
         f"service-{project_number}@gcp-sa-aiplatform.iam.gserviceaccount.com",
@@ -317,6 +326,20 @@ def main():
     # 4. Wdrażanie Agenta do Vertex AI Reasoning Engine
     engine_resource_name = args.reasoning_engine
     if not engine_resource_name:
+        from vertexai.preview import reasoning_engines as re_preview
+        try:
+            candidate_engines = list(re_preview.ReasoningEngine.list())
+            matching = [
+                ce for ce in candidate_engines 
+                if ce.display_name == "Gemini Enterprise Telemetry & Adoption Engine"
+            ]
+            if matching:
+                engine_resource_name = matching[0].resource_name
+                print(f"[*] Wykryto istniejący Vertex AI Reasoning Engine w projekcie: {engine_resource_name}")
+        except Exception:
+            pass
+
+    if not engine_resource_name:
         print(f"[*] Wdrażanie Agenta ADK do Vertex AI Reasoning Engine...")
         print(f"    Agent: {root_agent.name} (Narzędzia: {len(root_agent.tools)})")
         
@@ -332,9 +355,11 @@ def main():
                     "BIGQUERY_PROJECT": args.project,
                     "BIGQUERY_DATASET": args.dataset,
                 },
+                extra_packages=["agent"],
                 requirements=[
-                    "google-cloud-aiplatform[agent_engines,adk]>=1.88.0",
-                    "google-adk>=2.9.0",
+                    "google-adk==2.9.0",
+                    "google-api-core==2.35.0",
+                    "google-cloud-aiplatform",
                     "google-cloud-bigquery>=3.25.0",
                     "google-cloud-monitoring>=2.21.0",
                 ]
@@ -345,19 +370,26 @@ def main():
         except Exception as e:
             print(f"[WARN] Wystąpił błąd lub timeout podczas oczekiwania na create(): {e}")
             print(f"[*] Weryfikacja czy Reasoning Engine został pomyślnie utworzony na Vertex AI...")
+            import time
             from vertexai.preview import reasoning_engines as re_preview
-            candidate_engines = list(re_preview.ReasoningEngine.list())
-            matching = [
-                ce for ce in candidate_engines 
-                if ce.display_name == "Gemini Enterprise Telemetry & Adoption Engine"
-            ]
-            if matching:
-                engine_resource_name = matching[0].resource_name
-                print(f"    ✔ Wykryto aktywny Reasoning Engine na platformie Vertex AI: {engine_resource_name}")
-            else:
+            for _ in range(6):
+                time.sleep(10)
+                try:
+                    candidate_engines = list(re_preview.ReasoningEngine.list())
+                    matching = [
+                        ce for ce in candidate_engines 
+                        if ce.display_name == "Gemini Enterprise Telemetry & Adoption Engine"
+                    ]
+                    if matching:
+                        engine_resource_name = matching[0].resource_name
+                        print(f"    ✔ Wykryto aktywny Reasoning Engine na platformie Vertex AI: {engine_resource_name}")
+                        break
+                except Exception:
+                    pass
+            if not engine_resource_name:
                 raise
     else:
-        print(f"[*] Użycie wskazanego Reasoning Engine: {engine_resource_name}")
+        print(f"[*] Użycie Reasoning Engine: {engine_resource_name}")
 
     # 4. Usunięcie starych instancji agenta w Gemini Enterprise
     print(f"[*] Czyszczenie poprzednich instancji agenta w Gemini Enterprise...")
