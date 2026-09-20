@@ -136,19 +136,20 @@ Cały potok (włączenie obserwowalności, konfiguracja BigQuery, zlew logów, u
 git clone https://github.com/dprzek/gemini-enterprise-telemetry.git
 cd gemini-enterprise-telemetry
 
-# 2. Uruchom wdrożenie (wystarczy podać nazwę aplikacji, np. test-test-test lub test-app-123)
-./deploy.sh <NAZWA_LUB_ID_APLIKACJI>
+# 2. Uruchom wdrożenie ze wskazaniem identyfikatora silnika (lub przyjaznej nazwy aplikacji)
+./deploy.sh <ID_SILNIKA_LUB_NAZWA>
 
-# Przykład:
-./deploy.sh test-test-test
-# Lub jawnie ze wskazaniem projektu:
-./deploy.sh test-test-test --project dprzek-prod --location eu
+# Przykład ze wskazaniem dokładnego ID silnika:
+./deploy.sh ge-dprzek_1789915910154 --project ge-test-dprzek --location eu
+
+# Alternatywnie z jawną flagą --engine (lub --engine-id):
+./deploy.sh --engine ge-dprzek_1789915910154 --project ge-test-dprzek --location eu
 ```
 
 > [!TIP]
 > **Co automatyzuje `deploy.sh` (lub `python3 deploy.py`)?**
 > 1. **Auto-konfiguracja obserwowalności**: Automatycznie włącza `observabilityEnabled: true` oraz `sensitiveLoggingEnabled: true` na silniku — **koniec z ręcznym cURL-em czy klikaniem w konsoli!**
-> 2. **Inteligentne rozpoznawanie silnika**: Wyszukuje aplikację po przyjaznej nazwie z UI (np. `test-test-test` -> `test-test-test_1789816756559`).
+> 2. **Precyzyjne i elastyczne dopasowanie silnika**: Przyjmuje dokładny identyfikator silnika (`ENGINE_ID`, np. `ge-dprzek_1789915910154`) lub przyjazną nazwę. W projektach z wieloma silnikami chroni przed pomyłką i prezentuje listę dostępnych silników do wyboru.
 > 3. **Zlew Cloud Logging i uprawnienia**: Automatycznie zakłada zbiór danych BigQuery, zlew logów i nadaje uprawnienia `roles/bigquery.dataEditor`.
 > 4. **Wsteczna ingestja logów**: Uzupełnia historię z ostatnich 30 dni.
 > 5. **Analityka SQL i Dashboard**: Wdraża zdeduplikowane widoki SQL oraz tworzy dashboard w Cloud Monitoring.

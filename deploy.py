@@ -52,7 +52,10 @@ def get_default_project():
     return None
 
 def resolve_engine(project_id, location, engine_hint, token):
-    """Dopasowuje przyjazną nazwę aplikacji do pełnego ID silnika lub wybiera pierwszy dostępny."""
+    """
+    Dopasowuje identyfikator silnika (Engine ID) lub nazwę aplikacji do silnika w projekcie.
+    Wspiera projekty z jednym lub wieloma silnikami.
+    """
     api_host = f"{location}-discoveryengine.googleapis.com" if location != "global" else "discoveryengine.googleapis.com"
     url = f"https://{api_host}/v1alpha/projects/{project_id}/locations/{location}/collections/default_collection/engines"
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}", "X-Goog-User-Project": project_id})
@@ -60,15 +63,49 @@ def resolve_engine(project_id, location, engine_hint, token):
         with urllib.request.urlopen(req) as resp:
             data = json.loads(resp.read().decode())
             engines = data.get("engines", [])
-            if not engine_hint and engines:
-                return engines[0].get("name", "").split("/")[-1]
+            
+            if engine_hint:
+                engine_hint_clean = engine_hint.strip()
+                # 1. Dokładne dopasowanie po pełnym ID silnika (np. ge-dprzek_1789915910154)
+                for eng in engines:
+                    e_id = eng.get("name", "").split("/")[-1]
+                    if e_id.lower() == engine_hint_clean.lower():
+                        return e_id
+                # 2. Dokładne dopasowanie po displayName
+                for eng in engines:
+                    e_id = eng.get("name", "").split("/")[-1]
+                    d_name = eng.get("displayName", "")
+                    if d_name.lower() == engine_hint_clean.lower():
+                        return e_id
+                # 3. Dopasowanie prefiksu ID silnika ({engine_hint}_...)
+                for eng in engines:
+                    e_id = eng.get("name", "").split("/")[-1]
+                    if e_id.lower().startswith(f"{engine_hint_clean.lower()}_"):
+                        return e_id
+                # 4. Jeśli podano bezpośrednie ID silnika (lub brak uprawnień do listowania)
+                return engine_hint_clean
+
+            # Gdy użytkownik nie podał identyfikatora silnika:
+            if not engines:
+                return None
+            if len(engines) == 1:
+                auto_id = engines[0].get("name", "").split("/")[-1]
+                print(f"[*] Wykryto 1 silnik w projekcie: '{auto_id}' (użyty domyślnie).")
+                return auto_id
+
+            # W projekcie istnieje WIELE silników - brak domniemania 1 silnika!
+            print("======================================================================")
+            print(f"[!] W projekcie '{project_id}' wykryto wiele silników Gemini Enterprise ({len(engines)} silników).")
+            print("    Wskaż konkretny identyfikator silnika (Engine ID):")
             for eng in engines:
                 e_id = eng.get("name", "").split("/")[-1]
                 d_name = eng.get("displayName", "")
-                if engine_hint in [e_id, d_name] or e_id.startswith(f"{engine_hint}_"):
-                    return e_id
-            if engines:
-                return engine_hint or engines[0].get("name", "").split("/")[-1]
+                print(f"      • Engine ID: {e_id}  (Nazwa: '{d_name}')")
+            print("\n    Sposób użycia:")
+            print("      ./deploy.sh <ENGINE_ID> [--project PROJECT_ID] [--location LOCATION]")
+            print("      ./deploy.sh --engine <ENGINE_ID>")
+            print("======================================================================")
+            return None
     except Exception as e:
         print(f"    (Uwaga przy wyszukiwaniu silników: {e})")
     return engine_hint
@@ -231,10 +268,11 @@ def deploy_telemetry_agent(project_id, location, engine_id, dataset_id="gemini_e
 
 def main():
     parser = argparse.ArgumentParser(description="Zintegrowany Instalator Potoku Telemetrii Gemini Enterprise")
-    parser.add_argument("engine", nargs="?", default=None, help="Nazwa aplikacji lub identyfikator silnika (np. test-test-test)")
+    parser.add_argument("engine", nargs="?", default=None, help="Identyfikator silnika (Engine ID, np. ge-dprzek_1789915910154) lub przyjazna nazwa aplikacji")
     parser.add_argument("--project", "-p", default=None, help="ID Projektu Google Cloud")
-    parser.add_argument("--location", "-l", default=None, help="Lokalizacja (np. eu)")
-    parser.add_argument("--engine", "-e", dest="engine_flag", default=None, help="Nazwa aplikacji lub identyfikator silnika")
+    parser.add_argument("--location", "-l", default=None, help="Lokalizacja Discovery Engine (np. eu, global, us)")
+    parser.add_argument("--engine", "-e", dest="engine_flag", default=None, help="Identyfikator silnika Gemini Enterprise (Engine ID)")
+    parser.add_argument("--engine-id", dest="engine_id_flag", default=None, help="Jawny identyfikator silnika Gemini Enterprise (Engine ID)")
     parser.add_argument("--dataset", "-d", default="gemini_enterprise_telemetry", help="ID zbioru BigQuery")
     parser.add_argument("--skip-backfill", action="store_true", help="Pomiń wsteczną ingestję logów")
     parser.add_argument("--reasoning-engine", default=None, help="Istniejący zasób Vertex AI Reasoning Engine do ponownego użycia")
@@ -246,19 +284,20 @@ def main():
         sys.exit(1)
     location = args.location or os.environ.get("GOOGLE_CLOUD_LOCATION") or "eu"
     dataset_id = args.dataset
-    engine_hint = args.engine_flag or args.engine or os.environ.get("GEMINI_ENGINE_ID")
+    engine_hint = args.engine_id_flag or args.engine_flag or args.engine or os.environ.get("GEMINI_ENGINE_ID")
 
     token = get_auth_token()
     engine_id = resolve_engine(project_id, location, engine_hint, token)
     if not engine_id:
-        print("Błąd: Nie znaleziono aktywnego silnika Gemini Enterprise w projekcie. Podaj nazwę silnika jako argument lub --engine <ENGINE_ID>.")
+        print("Błąd: Nie określono lub nie znaleziono silnika Gemini Enterprise. Podaj identyfikator silnika: ./deploy.sh <ENGINE_ID> lub opcję --engine <ENGINE_ID>.")
         sys.exit(1)
 
+    match_info = f" (z dopasowania: '{engine_hint}')" if engine_hint and engine_hint != engine_id else ""
     print("======================================================================")
     print("Rozpoczęcie automatycznego wdrożenia potoku telemetrii Gemini Enterprise")
     print(f"  Projekt:      {project_id}")
     print(f"  Lokalizacja:  {location}")
-    print(f"  Silnik:       {engine_id} (z dopasowania: '{engine_hint}')")
+    print(f"  Silnik (ID):  {engine_id}{match_info}")
     print(f"  Zbiór danych: {dataset_id}")
     print("======================================================================")
 

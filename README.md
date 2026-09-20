@@ -15,12 +15,25 @@ Instalator automatycznie konfiguruje wszystkie komponenty end-to-end:
 git clone https://github.com/dprzek/gemini-enterprise-telemetry.git
 cd gemini-enterprise-telemetry
 
-# 2. Uruchom automatyczne wdrożenie
-./deploy.sh <NAZWA_LUB_ID_APLIKACJI>
+# 2. Uruchom automatyczne wdrożenie ze wskazaniem identyfikatora silnika (Engine ID):
+./deploy.sh <ID_SILNIKA>
 
-# Przykład ze wskazaniem projektu i lokalizacji:
-./deploy.sh gemini-test-123 --project test-ge-demos --location eu
+# Pełne wywołanie z ID silnika, projektem i lokalizacją:
+./deploy.sh ge-dprzek_1789915910154 --project ge-test-dprzek --location eu
+
+# Alternatywnie z jawną flagą --engine (lub --engine-id):
+./deploy.sh --engine ge-dprzek_1789915910154 --project ge-test-dprzek --location eu
 ```
+
+> [!NOTE]
+> **Obsługa wielu silników w projekcie (wielość aplikacji)**
+> W środowiskach organizacji w jednym projekcie Google Cloud często funkcjonuje wiele silników Gemini Enterprise (np. dla różnych departamentów lub procesów).
+> 
+> Listę identyfikatorów silników w projekcie można sprawdzić poleceniem:
+> ```bash
+> gcloud discovery-engine engines list --location=eu
+> ```
+> Jeśli w projekcie skonfigurowano kilka silników, instalator wymaga wskazania docelowego `<ID_SILNIKA>` (np. jako argument pozycyjny lub parametr `--engine <ID_SILNIKA>`). W przypadku uruchomienia bez parametrów w środowisku z wieloma silnikami, skrypt wylistuje wszystkie wykryte silniki wraz z ich identyfikatorami.
 
 > [!TIP]
 > **Co automatyzuje instalator?**

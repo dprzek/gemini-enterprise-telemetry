@@ -16,6 +16,7 @@ def main():
     parser.add_argument("--project", default=os.environ.get("GOOGLE_CLOUD_PROJECT"), help="Identyfikator projektu GCP (domyślnie z $GOOGLE_CLOUD_PROJECT)")
     parser.add_argument("--dataset", default=os.environ.get("DATASET_ID", "gemini_enterprise_telemetry"), help="Identyfikator zbioru danych BigQuery")
     parser.add_argument("--engine", default=os.environ.get("GEMINI_ENGINE_ID"), help="Identyfikator silnika Discovery Engine (np. my-app lub pełne ID)")
+    parser.add_argument("--engine-id", dest="engine_id_flag", default=None, help="Jawny identyfikator silnika Discovery Engine (Engine ID)")
     parser.add_argument("--location", default=os.environ.get("GOOGLE_CLOUD_LOCATION", "eu"), help="Lokalizacja Google Cloud (np. eu, us)")
     
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -53,11 +54,12 @@ def main():
     p_rep.add_argument("--days", type=int, default=14, help="Liczba dni do uwzględnienia w raporcie")
 
     args = parser.parse_args()
+    engine_val = args.engine_id_flag or args.engine
     service = TelemetryService(
         project_id=args.project,
         dataset_id=args.dataset,
         location=args.location,
-        engine_id=args.engine
+        engine_id=engine_val
     )
 
     if args.command == "utilization":

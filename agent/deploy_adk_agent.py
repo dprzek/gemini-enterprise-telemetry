@@ -102,11 +102,16 @@ def resolve_engine_id(project_id, location, engine_hint, credentials):
             data = json.load(resp)
             engines = data.get("engines", [])
             if not engine_hint and engines:
-                return engines[0].get("name", "").split("/")[-1]
+                if len(engines) == 1:
+                    return engines[0].get("name", "").split("/")[-1]
+                print(f"[!] W projekcie '{project_id}' wykryto wiele silników ({len(engines)}). Wskaż docelowy silnik za pomocą opcji --engine <ENGINE_ID>.")
+                for eng in engines:
+                    print(f"    - Engine ID: {eng.get('name', '').split('/')[-1]} (Nazwa: {eng.get('displayName', '')})")
+                sys.exit(1)
             for eng in engines:
                 eid = eng.get("name", "").split("/")[-1]
                 dname = eng.get("displayName", "")
-                if engine_hint and (dname == engine_hint or eid == engine_hint or eid.startswith(f"{engine_hint}_")):
+                if engine_hint and (eid.lower() == engine_hint.lower() or dname.lower() == engine_hint.lower() or eid.lower().startswith(f"{engine_hint.lower()}_")):
                     return eid
     except Exception as e:
         print(f"[WARN] Błąd listowania silników: {e}")
@@ -269,17 +274,21 @@ def main():
         except Exception:
             default_proj = ""
     default_engine = os.environ.get("GEMINI_ENGINE_ID", "")
-    parser.add_argument("--project", default=default_proj, required=not bool(default_proj), help="Google Cloud Project ID")
-    parser.add_argument("--engine", default=default_engine, required=not bool(default_engine), help="Discovery Engine / Gemini Enterprise Engine ID")
+    parser.add_argument("--engine", default=default_engine, help="Discovery Engine / Gemini Enterprise Engine ID lub nazwa aplikacji")
+    parser.add_argument("--engine-id", dest="engine_id_flag", default=None, help="Jawny identyfikator silnika Discovery Engine (Engine ID)")
     parser.add_argument("--location", default="eu", help="Gemini Enterprise Location (eu, global, us)")
     parser.add_argument("--vertex-location", default="europe-west1", help="Vertex AI Reasoning Engine Location (europe-west1, europe-west4)")
     parser.add_argument("--dataset", default="gemini_enterprise_telemetry", help="BigQuery Dataset ID")
     parser.add_argument("--reasoning-engine", default=None, help="Existing Vertex AI Reasoning Engine resource name to reuse")
     args = parser.parse_args()
 
+    engine_input = args.engine_id_flag or args.engine
+    if not engine_input and not default_engine:
+        pass  # resolve_engine_id will list engines or error clearly
+
     credentials, _ = google.auth.default()
     project_number = get_project_number(args.project, credentials)
-    engine_id = resolve_engine_id(args.project, args.location, args.engine, credentials)
+    engine_id = resolve_engine_id(args.project, args.location, engine_input, credentials)
 
     print(f"============================================================")
     print(f"  DEPLOY DYNAMIC ADK AGENT -> VERTEX AI AGENT RUNTIME       ")
