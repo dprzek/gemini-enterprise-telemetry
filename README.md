@@ -117,23 +117,6 @@ gcloud projects add-iam-policy-binding <PROJECT_ID>     --member="user:uzytkowni
 
 ---
 
-## 🧪 Zautomatyzowane Testy E2E (15/15)
-
-Pakiet zawiera zestaw testów regresyjnych i integracyjnych:
-
-```bash
-python3 -m unittest discover -s tests -p "test_suite.py" -v
-```
-
-Zakres testów obejmuje:
-- Składnię i multi-tenant hygiene (brak hardkodowanych identyfikatorów),
-- Dynamiczne dopasowanie silnika i idempotentność tworzenia tabel,
-- Integralność niezmienników matematycznych (spójność sum zdarzeń i tokenów),
-- Precyzję korelacji śladów OTel i eliminację podwójnego zliczania,
-- Stan wdrożenia Agenta w Vertex AI Reasoning Engine i współdzielenie `ALL_USERS`.
-
----
-
 ## 📁 Struktura Repozytorium
 
 ```text
