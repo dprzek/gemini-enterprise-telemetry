@@ -6,7 +6,7 @@ Pakiet opiera się na oficjalnych mechanizmach obserwowalności platformy (OpenT
 
 ---
 
-## 🚀 Szybki Start (Wdrożenie w 1 kroku)
+## 🚀 Szybki start (wdrożenie w 1 kroku)
 
 Instalator automatycznie konfiguruje wszystkie komponenty end-to-end:
 
@@ -28,49 +28,49 @@ cd gemini-enterprise-telemetry
 > - Tworzy zbiór danych BigQuery, zlew logów i nadaje wymagane uprawnienia IAM.
 > - Przeprowadza idempotentny backfill historii i kompiluje zdeduplikowane widoki SQL.
 > - Tworzy dashboard operacyjny w Cloud Monitoring.
-> - Buduje i wdraża Agenta ADK do Vertex AI Reasoning Engine oraz publikuje go w aplikacji (`ALL_USERS`).
+> - Buduje i wdraża agenta ADK do Vertex AI Reasoning Engine oraz publikuje go w aplikacji (`ALL_USERS`).
 
 Szczegółowy podręcznik procedur wdrożeniowych krok po kroku znajduje się w [MANUAL.md](MANUAL.md).
 
 ---
 
-## 💬 O co możesz zapytać Agenta? (Przykładowe Prompty)
+## 💬 O co możesz zapytać agenta? (przykładowe prompty)
 
 Agent telemetrii (`Gemini Enterprise Telemetry & Adoption Agent`) korzysta z dynamicznych narzędzi Python i bezpośrednio odpytuje BigQuery oraz Cloud Monitoring API w czasie rzeczywistym. Możesz rozmawiać z nim w języku naturalnym:
 
-### 👤 Aktywność i Utylizacja Użytkowników
+### 👤 Aktywność i utylizacja użytkowników
 - *"Przedstaw aktywność użytkownika jan.kowalski@twoja-firma.com z ostatnich 14 dni z rozbiciem na poszczególne dni."*
 - *"Ile zapytań i tokenów zużył mock-analyst-user@test-ge-demos.iam.gserviceaccount.com w tym tygodniu?"*
 - *"Kiedy użytkownik anna.nowak@twoja-firma.com wykonał swoje pierwsze i ostatnie zapytanie?"*
 
-### 🎨 Moduły i Funkcje (Deep Research, Obrazy, Agenty)
+### 🎨 Moduły i funkcje (Deep Research, obrazy, agenty)
 - *"Ile badań Deep Research przeprowadzono w organizacji w tym miesiącu i kto je uruchamiał?"*
 - *"Ile grafik wygenerowano za pomocą modeli graficznych w ostatnich 7 dniach?"*
 - *"Pokaż listę użytkowników, którzy stworzyli własne agenty w Agent Designerze."*
 
-### 📈 Adopcja i Trendy w Organizacji
+### 📈 Adopcja i trendy w organizacji
 - *"Pokaż ranking 5 najbardziej aktywnych użytkowników platformy pod względem zapytań i tokenów."*
 - *"Jak kształtuje się wskaźnik DAU (Daily Active Users) w ciągu ostatnich 30 dni?"*
 - *"Jak wygląda łączna dynamika zapytań i wolumenu tokenów w porównaniu do ubiegłego tygodnia?"*
 
 ---
 
-## 📊 Śledzone Metryki
+## 📊 Śledzone metryki
 
-| Kategoria | Mierzone Wymiary | Źródło Danych |
+| Kategoria | Mierzone wymiary | Źródło danych |
 | :--- | :--- | :--- |
-| **Zapytania i Czat** | Wolumen promptów, odpowiedzi, głębokość konwersacji (tury/sesję) | BigQuery + Cloud Monitoring |
+| **Zapytania i czat** | Wolumen promptów, odpowiedzi, głębokość konwersacji (tury/sesję) | BigQuery + Cloud Monitoring |
 | **Deep Research** | Unikalne sesje wieloetapowego badania rynku/wiedzy | BigQuery (`agents/deep_research`) |
-| **Generowanie Obrazów** | Liczba wygenerowanych grafik (modele graficzne) | BigQuery (`is_image_generation`) |
-| **Tworzenie Agentów** | Liczba utworzonych i edytowanych agentów customowych | Cloud Audit Logs (`CreateAgent`) |
-| **Konsumpcja Tokenów** | Tokeny wejściowe (prompt), wyjściowe i buforowane (cache) | BigQuery (`gen_ai_client_inference`) |
+| **Generowanie obrazów** | Liczba wygenerowanych grafik (modele graficzne) | BigQuery (`is_image_generation`) |
+| **Tworzenie agentów** | Liczba utworzonych i edytowanych agentów customowych | Cloud Audit Logs (`CreateAgent`) |
+| **Konsumpcja tokenów** | Tokeny wejściowe (prompt), wyjściowe i buforowane (cache) | BigQuery (`gen_ai_client_inference`) |
 | **Adopcja UX** | Wskaźniki DAU / WAU / MAU, retencja użytkowników | BigQuery (`v_daily_adoption`) |
-| **Limity Kwotowe** | Zapytania, agenty, deep research, WTU developerów, storage | Cloud Monitoring (`quota/*`) |
-| **Wydajność i Błędy** | Czas do 1. tokena (TTFT), spany OTel, kody HTTP / statusy RPC | Cloud Trace & Audit Logs |
+| **Limity kwotowe** | Zapytania, agenty, deep research, WTU developerów, storage | Cloud Monitoring (`quota/*`) |
+| **Wydajność i błędy** | Czas do 1. tokena (TTFT), spany OTel, kody HTTP / statusy RPC | Cloud Trace & Audit Logs |
 
 ---
 
-## 🏛️ Architektura w Pigułce
+## 🏛️ Architektura w pigułce
 
 ```
 [Gemini Enterprise Engine] (OpenTelemetry + Audit Logs)
@@ -83,13 +83,13 @@ Agent telemetrii (`Gemini Enterprise Telemetry & Adoption Agent`) korzysta z dyn
                     └─► Gemini Enterprise Assistant (Współdzielenie: ALL_USERS)
 ```
 
-1. **Brak Parsowania Regexem Tekstu**: Zdarzenia i tokeny są ściśle powiązane po natywnych identyfikatorach śladów OpenTelemetry (`trace_id`, `span_id`).
-2. **Matematyczna Integralność (Zero Double-Counting)**: Klauzule `QUALIFY ROW_NUMBER() ...` gwarantują eliminację duplikatów i iloczynów kartezjańskich.
+1. **Brak parsowania tekstu regexem**: Zdarzenia i tokeny są ściśle powiązane po natywnych identyfikatorach śladów OpenTelemetry (`trace_id`, `span_id`).
+2. **Matematyczna integralność (zero double-counting)**: Klauzule `QUALIFY ROW_NUMBER() ...` gwarantują eliminację duplikatów i iloczynów kartezjańskich.
 3. **Idempotentność**: Każdy komponent instalatora oraz skryptu wstecznej ingestji (`backfill`) może być uruchamiany wielokrotnie bez powielania danych.
 
 ---
 
-## 🔍 Widoki Analityczne w BigQuery (`gemini_enterprise_telemetry`)
+## 🔍 Widoki analityczne w BigQuery (`gemini_enterprise_telemetry`)
 
 - **`v_user_daily_utilization`** — Dzienny profil utylizacji per użytkownik (zapytania, obrazy, badania, agenty, błędy, tokeny wejścia/wyjścia/cache).
 - **`v_daily_adoption`** — Globalne trendy organizacji: DAU, łączna liczba akcji, zapytań, tokenów i unikalnych użytkowników.
@@ -100,20 +100,24 @@ Agent telemetrii (`Gemini Enterprise Telemetry & Adoption Agent`) korzysta z dyn
 
 ---
 
-## 👥 Uprawnienia IAM dla Użytkowników
+## 👥 Uprawnienia IAM dla użytkowników
 
 Aby użytkownicy w organizacji mogli korzystać z Agenta Telemetrii w portalu Gemini Enterprise, wystarczy nadać im role dostępowe do aplikacji:
 
 ```bash
 # Dla pojedynczego użytkownika:
-gcloud projects add-iam-policy-binding <PROJECT_ID>     --member="user:uzytkownik@twoja-firma.com"     --role="roles/discoveryengine.user"
+gcloud projects add-iam-policy-binding <PROJECT_ID> \
+    --member="user:uzytkownik@twoja-firma.com" \
+    --role="roles/discoveryengine.user"
 
-gcloud projects add-iam-policy-binding <PROJECT_ID>     --member="user:uzytkownik@twoja-firma.com"     --role="roles/discoveryengine.agentspaceUser"
+gcloud projects add-iam-policy-binding <PROJECT_ID> \
+    --member="user:uzytkownik@twoja-firma.com" \
+    --role="roles/discoveryengine.agentspaceUser"
 ```
 
 ---
 
-## 📁 Struktura Repozytorium
+## 📁 Struktura repozytorium
 
 ```text
 gemini-enterprise-telemetry/
