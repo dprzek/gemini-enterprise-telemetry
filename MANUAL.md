@@ -142,8 +142,8 @@ cd gemini-enterprise-telemetry
 # Przykład ze wskazaniem dokładnego ID silnika:
 ./deploy.sh ge-dprzek_1789915910154 --project ge-test-dprzek --location eu
 
-# Alternatywnie z jawną flagą --engine (lub --engine-id):
-./deploy.sh --engine ge-dprzek_1789915910154 --project ge-test-dprzek --location eu
+# Wymuszenie ponownego wdrożenia Agenta:
+./deploy.sh ge-dprzek_1789915910154 --recreate
 ```
 
 > [!TIP]

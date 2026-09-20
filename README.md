@@ -33,7 +33,7 @@ cd gemini-enterprise-telemetry
 > ```bash
 > gcloud discovery-engine engines list --location=eu
 > ```
-> Jeśli w projekcie skonfigurowano kilka silników, instalator wymaga wskazania docelowego `<ID_SILNIKA>` (np. jako argument pozycyjny lub parametr `--engine <ID_SILNIKA>`). W przypadku uruchomienia bez parametrów w środowisku z wieloma silnikami, skrypt wylistuje wszystkie wykryte silniki wraz z ich identyfikatorami.
+> Jeśli w projekcie skonfigurowano kilka silników, instalator wymaga wskazania docelowego `<ID_SILNIKA>` (jako argument pozycyjny, np. `./deploy.sh <ID_SILNIKA>`). W przypadku uruchomienia bez parametrów w środowisku z wieloma silnikami, skrypt wylistuje wszystkie wykryte silniki wraz z ich identyfikatorami.
 
 > [!TIP]
 > **Co automatyzuje instalator?**
@@ -98,7 +98,8 @@ Agent telemetrii (`Gemini Enterprise Telemetry & Adoption Agent`) korzysta z dyn
 
 1. **Brak parsowania tekstu regexem**: Zdarzenia i tokeny są ściśle powiązane po natywnych identyfikatorach śladów OpenTelemetry (`trace_id`, `span_id`).
 2. **Matematyczna integralność (zero double-counting)**: Klauzule `QUALIFY ROW_NUMBER() ...` gwarantują eliminację duplikatów i iloczynów kartezjańskich.
-3. **Idempotentność**: Każdy komponent instalatora oraz skryptu wstecznej ingestji (`backfill`) może być uruchamiany wielokrotnie bez powielania danych.
+3. **Czystość statystyk adopcji**: Widoki automatycznie odrzucają wewnętrzne konta systemowe platformy Google Cloud (`@gcp-sa-*.iam.gserviceaccount.com`), dzięki czemu raporty i rankingi prezentują wyłącznie rzeczywistych pracowników.
+4. **Idempotentność i Self-Healing**: Wszystkie operacje są w pełni powtarzalne bez duplikacji danych, a instalator aktywnie testuje kondycję Reasoning Engine przed rejestracją w Gemini Enterprise.
 
 ---
 
@@ -134,14 +135,15 @@ gcloud projects add-iam-policy-binding <PROJECT_ID> \
 
 ```text
 gemini-enterprise-telemetry/
-├── deploy.sh                   # Szybki skrypt uruchomieniowy
+├── deploy.sh                   # Szybki skrypt uruchomieniowy (auto-instalacja zależności)
 ├── deploy.py                   # Główny zintegrowany instalator Zero-Touch
+├── requirements.txt            # Precyzyjne zależności wykonawcze środowiska
 ├── MANUAL.md                   # Podręcznik wdrożeniowy dla administratorów
 ├── bigquery/
 │   └── telemetry_views.sql     # 6 analitycznych widoków SQL
 ├── agent/
 │   ├── adk_telemetry_agent.py  # Kod Agenta ADK i definicje narzędzi
-│   └── deploy_adk_agent.py     # Wdrożenie do Vertex AI Reasoning Engine
+│   └── deploy_adk_agent.py     # Wdrożenie do Vertex AI Reasoning Engine (z health-checkiem)
 ├── cli/
 │   ├── telemetry_service.py    # Warstwa dostępu do danych (BigQuery/Monitoring)
 │   └── telemetry_cli.py        # Narzędzie konsolowe CLI
