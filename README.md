@@ -20,7 +20,7 @@ cd gemini-enterprise-telemetry
 ./deploy.sh <GE_APP_ID - nie mylić z APP_NAME> --project <PROJECT_ID> --location eu
 
 # Wymuszenie ponownego wdrożenia Agenta (np. przy aktualizacji kodu):
-./deploy.sh ge-dprzek_1789915910154 --recreate
+./deploy.sh <GE_APP_ID - nie mylić z APP_NAME> --recreate
 ```
 
 > [!NOTE]
