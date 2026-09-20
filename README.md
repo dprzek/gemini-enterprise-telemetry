@@ -50,8 +50,8 @@ Agent telemetrii (`Gemini Enterprise Telemetry & Adoption Agent`) korzysta z dyn
 
 ### 👤 Aktywność i utylizacja użytkowników
 - *"Przedstaw aktywność użytkownika jan.kowalski@twoja-firma.com z ostatnich 14 dni z rozbiciem na poszczególne dni."*
-- *"Ile zapytań i tokenów zużył mock-analyst-user@test-ge-demos.iam.gserviceaccount.com w tym tygodniu?"*
-- *"Kiedy użytkownik anna.nowak@twoja-firma.com wykonał swoje pierwsze i ostatnie zapytanie?"*
+- *"Ile zapytań i tokenów zużył jan.kowalski@twoja-firma.com w tym tygodniu?"*
+- *"Kiedy użytkownik jan.kowalski@twoja-firma.com wykonał swoje pierwsze i ostatnie zapytanie?"*
 
 ### 🎨 Moduły i funkcje (Deep Research, obrazy, agenty)
 - *"Ile badań Deep Research przeprowadzono w organizacji w tym miesiącu i kto je uruchamiał?"*
