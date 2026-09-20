@@ -1,386 +1,166 @@
-# Monitoring Telemetrii, Adopcji i Obserwowalności Gemini Enterprise
+# Gemini Enterprise Telemetry & Adoption
 
-Gotowe do wdrożenia produkcyjnego rozwiązanie do monitorowania, analizy i raportowania telemetrii wykorzystania usługi Google Cloud **Gemini Enterprise** w całej organizacji.
+Gotowe do wdrożenia rozwiązanie do monitorowania, analizy i raportowania telemetrii wykorzystania **Google Cloud Gemini Enterprise** w organizacji.
 
-Pakiet obejmuje automatyczną strumieniową i wsadową ingestję logów do BigQuery, dedykowane widoki analityczne SQL, śledzenie limitów kwotowych (quotas) i opóźnień w czasie rzeczywistym w Cloud Monitoring, CLI dla administratorów oraz konwersacyjnego agenta AI wdrożonego bezpośrednio w **Gemini Enterprise Agent Designer**.
-
----
-
-## Główne Funkcjonalności
-
-- **Śledzenie Utylizacji Użytkowników (w Ujęciu Dziennym)**: Precyzyjny pomiar aktywności użytkowników, zapytań do asystenta, wywołań Deep Research, liczby tworzonych agentów oraz zużycia tokenów modeli w pełnym rozbiciu na poszczególne dni (`--daily`) lub w zadanych przedziałach czasowych.
-- **Obserwowalność OpenTelemetry i Rozproszone Ślady (Distributed Tracing)**: Natywne wsparcie dla konfiguracji obserwowalności Gemini Enterprise (`observabilityConfig`), rozproszone ślady i spany w Cloud Trace (`AssistantService.StreamAssist`, `execute_tool`, `invoke_connector`) oraz widok analityczny BigQuery `v_observability_traces`.
-- **Wskaźniki Zaangażowania i Adopcji UX**: Śledzenie głębokości konwersacji (Conversational Depth: liczba tur/interakcji na sesję), wskaźnika adopcji narzędzi (Tool Adoption Rate: % sesji z narzędziami) oraz postrzeganej responsywności (Time to First Token - TTFT).
-- **Analityka Adopcji w Skali Organizacji**: Monitorowanie liczby aktywnych użytkowników: DAU (Daily Active Users), WAU (Weekly) i MAU (Monthly), łącznego wolumenu promptów oraz trendów retencji.
-- **Monitoring Limitów Kwotowych (Pooled Quotas & Overages)**: Bieżące śledzenie limitów puli organizacji i tempa ich zużycia (zapytania asystenta, Agent Builder, Deep Research, generowanie obrazów i wideo, kredyty WTU dla narzędzi deweloperskich, przestrzeń dyskowa).
-- **Konwersacyjny Agent Telemetrii i Obserwowalności**: Agent AI wdrożony bezpośrednio w silniku Gemini Enterprise (Discovery Engine / Agent Builder), który rozpoczyna każdą konwersację od **oświadczenia przedstawiającego zakres oferowanych metryk** i odpowiada na zapytania administratorów w języku naturalnym.
-- **Wizualny Dashboard Cloud Monitoring**: Wykresy i panele przedstawiające limity kwotowe vs. bieżące użycie, opóźnienia TTFT, liczbę sesji i tur oraz wykorzystanie narzędzi.
-- **Kompletny Podręcznik Wdrożenia (Runbook)**: Szczegółowa instrukcja wdrożenia krok po kroku dla administratorów klienta opisana w pliku [MANUAL.md](MANUAL.md).
-- **Automatyczne Wdrożenie Jednym Poleceniem**: Skrypt powłoki (`deploy_pipeline.sh`) oraz moduł Terraform (`terraform/`) umożliwiający natychmiastowe uruchomienie w dowolnym projekcie Google Cloud.
-- **Umiejętność Antigravity (Skill)**: Gotowy skill wielokrotnego użytku spakowany w katalogu `skills/gemini-enterprise-telemetry/`.
+Pakiet opiera się na oficjalnych mechanizmach obserwowalności platformy (OpenTelemetry, Cloud Audit Logs, Cloud Monitoring Quotas), zdeduplikowanych widokach BigQuery oraz **autonomicznym Agencie ADK**, wdrożonym w **Vertex AI Reasoning Engine** i dostępnym bezpośrednio dla użytkowników w Gemini Enterprise (`ALL_USERS`).
 
 ---
 
-## Architektura Oparta na Oficjalnych Usługach Google Cloud (Zero Regex)
+## 🚀 Szybki Start (Wdrożenie w 1 kroku)
 
-> [!IMPORTANT]
-> **Natywna Architektura Telemetrii zamiast Parsowania Surowego Tekstu**:
-> Rozwiązanie **nie wyciąga ani nie odgrzebuje danych z nieustrukturyzowanych logów za pomocą wyrażeń regularnych (regex)**. Zostało zaprojektowane w 100% w oparciu o oficjalne usługi, standardy i interfejsy API obserwowalności Google Cloud Gemini Enterprise:
-> - 📘 [Manage observability settings](https://cloud.google.com/gemini/enterprise/docs/manage-observability-settings) ([wersja devsite](https://clouddocs.devsite.corp.google.com/gemini/enterprise/docs/manage-observability-settings))
-> - 📘 [Access traces and spans](https://cloud.google.com/gemini/enterprise/docs/access-traces-and-spans) ([wersja devsite](https://clouddocs.devsite.corp.google.com/gemini/enterprise/docs/access-traces-and-spans))
-> - 📘 [Access metrics](https://cloud.google.com/gemini/enterprise/docs/access-metrics) ([wersja devsite](https://clouddocs.devsite.corp.google.com/gemini/enterprise/docs/access-metrics))
-
-### 3 Filary Oficjalnej Integracji Google Cloud:
-
-1. ⚙️ **Konfiguracja Obserwowalności Silnika ([Manage observability settings](https://cloud.google.com/gemini/enterprise/docs/manage-observability-settings))**:
-   - Skrypt instalacyjny (`deploy.py` / `deploy.sh`) oraz moduł `TelemetryService` konfigurują silnik Gemini Enterprise za pośrednictwem Discovery Engine API (`PATCH ...?updateMask=observabilityConfig`).
-   - Włączane są natywne flagi platformy:
-     * `observabilityConfig.observabilityEnabled = true` — automatyczna emisja rozproszonych śladów OpenTelemetry do Google Cloud Trace.
-     * `observabilityConfig.sensitiveLoggingEnabled = true` — ustrukturyzowane logowanie zapytań i odpowiedzi modelu w formacie JSON/ProtoPayload.
-
-2. ⏱️ **Rozproszone Ślady i Spany OpenTelemetry ([Access traces and spans](https://cloud.google.com/gemini/enterprise/docs/access-traces-and-spans))**:
-   - Gemini Enterprise emituje standardowe spany OpenTelemetry dla każdej tury konwersacji (`AssistantService.StreamAssist`), wywołania narzędzia (`execute_tool`) i konektora (`invoke_connector`).
-   - **Deterministyczne złączenia w BigQuery**: Zamiast dopasowywać ciągi znaków wyrażeniami regularnymi, widoki SQL (`v_observability_traces`, `v_user_daily_utilization`) korelują zdarzenia użytkownika z wnioskowaniem LLM (`gen_ai_client_inference_operation_details`) **ściśle po unikalnym identyfikatorze `trace_id` i `session_id` OpenTelemetry**.
-   - **Zero Double-Counting**: Zastosowanie kluczy śladów i okien analitycznych (`ROW_NUMBER() OVER ...`) całkowicie eliminuje duplikaty i iloczyny kartezjańskie, zapewniając pełną spójność matematyczną.
-
-3. 📊 **Natywne Metryki Operacyjne Cloud Monitoring ([Access metrics](https://cloud.google.com/gemini/enterprise/docs/access-metrics))**:
-   - Wszystkie metryki operacyjne są odpytywane bezpośrednio z Cloud Monitoring API (`monitoring.googleapis.com`) z oficjalnej przestrzeni nazw `discoveryengine.googleapis.com/`:
-     * `agent/session_count` — łączna liczba sesji agentów,
-     * `agent/turn_count` — liczba tur konwersacyjnych (Conversational Depth),
-     * `agent/session_with_tool_count` — wskaźnik użycia narzędzi (Tool Adoption Rate),
-     * `engine/time_to_first_token_latency` — rozkład statystyczny opóźnień TTFT (Time to First Token),
-     * `quota/*` — monitorowanie limitów puli organizacji w czasie rzeczywistym.
-   - Metryki te są agregowane bezpośrednio w silniku platformy Google Cloud, a nie szacowane z logów.
-
----
-
-## Architektura Rozwiązania
-
-```
-                                  Gemini Enterprise
-                       (Dowolny silnik w wybranym regionie)
-                                          │
-                  ┌───────────────────────┴───────────────────────┐
-                  ▼                                               ▼
-     Cloud Logging & Ślady Audytowe                  Cloud Monitoring (Czas Rzeczywisty)
-     - discoveryengine_googleapis_com_*              - discoveryengine.googleapis.com/quota/*
-     - cloudaudit_googleapis_com_activity            - agent_session_count & agent_turn_count
-     - gen_ai.client.inference.operation.details     - agent_session_with_tool_count
-                  │                                  - engine/time_to_first_token_latency (TTFT)
-                  ▼ (Zlew Logów / Log Sink)          - agent_total_latencies & tool_latencies
-       Zbiór Telemetryczny BigQuery                               │
-       (gemini_enterprise_telemetry w EU)                         │
-       - Tabele partycjonowane i klastrowane                      │
-       - 6 Widoków Analitycznych:                                 │
-         * v_user_daily_utilization (rozbicie dzienne per user)   │
-         * v_observability_traces (ślady i spany OpenTelemetry)   │
-         * v_user_summary (agregaty per user od początku)         │
-         * v_daily_adoption (trendy DAU/WAU/MAU)                  │
-         * v_feature_usage (wykorzystanie modułów i funkcji)      │
-         * v_token_telemetry (tokeny wejściowe, wyjściowe, cache) │
-                  │                                               │
-                  └───────────────────────┬───────────────────────┘
-                                          ▼
-                      Usługa Telemetrii i CLI Administratora
-                                          │
-                  ┌───────────────────────┴───────────────────────┐
-                  ▼                                               ▼
-     Agent Gemini Enterprise                           Narzędzia CLI i Monitoring
-     (Wdrożony w Agent Designerze)                     - Zapytania per user po dniach (--daily)
-     - Rozpoczyna oświadczeniem o metrykach            - Metryki obserwowalności i ślady
-     - Pełna historia utylizacji po dniach             - Alerty limitów kwotowych
-     - Raportowanie obserwowalności i TTFT             - Wizualny dashboard Cloud Monitoring
-```
-
----
-
-## Śledzone Wymiary Telemetryczne
-
-| Kategoria Metryki | Badany Wymiar | Źródło Danych | Reset i Egzekwowanie Limitów |
-| :--- | :--- | :--- | :--- |
-| **Zapytania Asystenta** | Prompty użytkowników i odpowiedzi modelu | BigQuery + Cloud Monitoring | Codziennie o północy PT (Pula organizacji wg edycji) |
-| **Tworzenie Agentów** | Agenty no-code utworzone / modyfikowane | Cloud Audit Logs (`CreateAgent`) + Quotas | Codziennie o północy PT (Pula organizacji wg edycji) |
-| **Deep Research** | Uruchomione analizy Deep Research | BigQuery + Cloud Monitoring | Codziennie o północy PT (Pula organizacji wg edycji) |
-| **Generowanie Obrazów**| Wygenerowane obrazy | BigQuery + Cloud Monitoring | Codziennie o północy PT (Pula organizacji wg edycji) |
-| **Generowanie Wideo** | Wygenerowane wideo | BigQuery + Cloud Monitoring | Codziennie o północy PT (Pula organizacji wg edycji) |
-| **Narzędzia AI Dev** | Zużycie kredytów WTU (Antigravity / IDE) | Cloud Monitoring (`ai_dev_tool_wtu_*`) | Kroczące okno 7-dniowe (Pula organizacji) |
-| **Pojemność Danych** | GiB zindeksowane w magazynach danych | Cloud Monitoring (`total_document_size`) | Ciągła pula regionalna |
-| **Utylizacja Użytkowników**| Zdarzenia, zapytania, agenty, tokeny | BigQuery (`v_user_daily_utilization`) | Dowolny filtr dat i rozbicie na poszczególne dni |
-| **Głębokość Konwersacji**| Średnia liczba tur (turns) na sesję | Cloud Monitoring (`agent_turn_count`) | Okno kroczące |
-| **Adopcja Narzędzi** | % sesji z wywołaniem narzędzi zewnętrznych | Cloud Monitoring (`agent_session_with_tool_count`) | Okno kroczące |
-| **Opóźnienie TTFT** | Czas do wygenerowania pierwszego tokena | Cloud Monitoring (`engine/time_to_first_token_latency`)| Rozkład statystyczny opóźnień |
-| **Ślady Rozproszone** | Ślady i spany OpenTelemetry w Cloud Trace | BigQuery (`v_observability_traces`) | Retencja 30 dni w Cloud Trace |
-| **Zużycie Tokenów** | Tokeny promptu, odpowiedzi i buforowane (cache) | BigQuery (`v_token_telemetry`) | W czasie rzeczywistym i zagregowane |
-
----
-
-## Szybki Start: Wdrożenie Jednym Poleceniem (Zero-Touch)
-
-Aby wdrożyć cały potok telemetryczny w dowolnym projekcie Google Cloud:
+Instalator automatycznie konfiguruje wszystkie komponenty end-to-end:
 
 ```bash
 # 1. Sklonuj repozytorium
 git clone https://github.com/dprzek/gemini-enterprise-telemetry.git
 cd gemini-enterprise-telemetry
 
-# 2. Uruchom automatyczne wdrożenie end-to-end
+# 2. Uruchom automatyczne wdrożenie
 ./deploy.sh <NAZWA_LUB_ID_APLIKACJI>
 
-# Przykład:
-./deploy.sh test-test-test
-# Lub ze wskazaniem konkretnego projektu i lokalizacji:
-./deploy.sh test-test-test --project dprzek-prod --location eu
+# Przykład ze wskazaniem projektu i lokalizacji:
+./deploy.sh gemini-test-123 --project test-ge-demos --location eu
 ```
 
 > [!TIP]
-> **Co automatyzuje `deploy.sh` (lub `python3 deploy.py`)?**
-> - **Zero kroków manualnych**: Automatycznie włącza `observabilityConfig` na silniku bez potrzeby ręcznego wysyłania zapytań cURL czy klikania w panelu.
-> - **Automatyczne rozpoznawanie silnika**: Dopasowuje przyjazną nazwę aplikacji (np. `test-test-test`) do właściwego identyfikatora zasobu (`test-test-test_1789816756559`).
-> - **Automatyczny setup BigQuery & IAM**: Tworzy zbiór danych, zlew logów, nadaje uprawnienia `roles/bigquery.dataEditor`, przeprowadza backfill i kompiluje zdeduplikowane widoki SQL.
-> - **Wdrożenie Agenta i Dashboardu**: Tworzy dashboard operacyjny w Cloud Monitoring i publikuje Agenta Telemetrii w Gemini Enterprise.
+> **Co automatyzuje instalator?**
+> - Włącza `observabilityConfig` (OpenTelemetry + logowanie) w silniku Gemini.
+> - Tworzy zbiór danych BigQuery, zlew logów i nadaje wymagane uprawnienia IAM.
+> - Przeprowadza idempotentny backfill historii i kompiluje zdeduplikowane widoki SQL.
+> - Tworzy dashboard operacyjny w Cloud Monitoring.
+> - Buduje i wdraża Agenta ADK do Vertex AI Reasoning Engine oraz publikuje go w aplikacji (`ALL_USERS`).
+
+Szczegółowy podręcznik procedur wdrożeniowych krok po kroku znajduje się w [MANUAL.md](MANUAL.md).
 
 ---
 
-## Wykorzystanie CLI dla Administratorów
+## 💬 O co możesz zapytać Agenta? (Przykładowe Prompty)
 
-Repozytorium zawiera narzędzie wiersza poleceń w katalogu `cli/` umożliwiające szybkie badanie telemetrii:
+Agent telemetrii (`Gemini Enterprise Telemetry & Adoption Agent`) korzysta z dynamicznych narzędzi Python i bezpośrednio odpytuje BigQuery oraz Cloud Monitoring API w czasie rzeczywistym. Możesz rozmawiać z nim w języku naturalnym:
 
-### 1. Utylizacja Użytkownika w Rozbiciu na Poszczególne Dni (`--daily`)
-```bash
-python3 cli/telemetry_cli.py utilization --daily --user user@example.com
-```
-*Przykładowy wynik:*
-```text
-=== Raport Dziennej Utylizacji Użytkownika (5 wpisów dziennych) ===
-Data         | Identyfikator Użytkownika    | Zdarzenia | Zapytania | Deep Rsrch | Agenty  | Tokeny    
-------------------------------------------------------------------------------------------------
-2026-09-19   | user@example.com             | 8         | 5         | 0          | 2       | 39,643    
-2026-09-18   | user@example.com             | 4         | 2         | 0          | 2       | 16,840    
-2026-09-15   | user@example.com             | 3         | 2         | 1          | 0       | 28,150    
-2026-09-12   | user@example.com             | 4         | 3         | 0          | 1       | 23,920    
-2026-09-08   | user@example.com             | 2         | 2         | 0          | 0       | 15,410    
-```
-> [!NOTE]
-> **Zgodność Matematyczna**: Liczba `Zdarzenia` odpowiada rzeczywistej sumie akcji użytkownika (`Zapytania + Deep Rsrch + Agenty + Zdarzenia Audytu silnika`). W każdym dniu z zarejestrowanymi zapytaniami do asystenta lub zadaniami badawczymi generowane jest ściśle dodatnie zużycie `Tokenów` (tokeny promptu, odpowiedzi oraz buforowane).
+### 👤 Aktywność i Utylizacja Użytkowników
+- *"Przedstaw aktywność użytkownika jan.kowalski@twoja-firma.com z ostatnich 14 dni z rozbiciem na poszczególne dni."*
+- *"Ile zapytań i tokenów zużył mock-analyst-user@test-ge-demos.iam.gserviceaccount.com w tym tygodniu?"*
+- *"Kiedy użytkownik anna.nowak@twoja-firma.com wykonał swoje pierwsze i ostatnie zapytanie?"*
 
-### 2. Metryki Obserwowalności, Zaangażowania i Ślady OpenTelemetry
-```bash
-python3 cli/telemetry_cli.py observability --traces
-```
-*Przykładowy wynik:*
-```text
-=== Gemini Enterprise: Metryki Obserwowalności i OpenTelemetry ===
-• Identyfikator Silnika:       <ENGINE_ID> (np. my-gemini-app_1234567890)
-• Lokalizacja:                 eu
-• Obserwowalność Włączona:     True
-• Wrażliwe Logowanie Włączone: True
-• Typ Aplikacji:               APP_TYPE_INTRANET
---------------------------------------------------------------------
-• Liczba Sesji Agenta:         4600
-• Liczba Tur Konwersacyjnych:  8360
-• Głębokość Konwersacji:       1.82 tury/sesję
-• Sesje z Użyciem Narzędzi:    0
-• Wskaźnik Adopcji Narzędzi:   0.0%
-• Łączna Liczba Zapytań:       9067
-• Średni Czas do 1. Tokena:    47747.19 ms
-• Średni Czas Całkowity:       208540.94 ms
+### 🎨 Moduły i Funkcje (Deep Research, Obrazy, Agenty)
+- *"Ile badań Deep Research przeprowadzono w organizacji w tym miesiącu i kto je uruchamiał?"*
+- *"Ile grafik wygenerowano za pomocą modeli Imagen w ostatnich 7 dniach?"*
+- *"Pokaż listę użytkowników, którzy stworzyli własne agenty w Agent Designerze."*
 
-=== Ostatnie Rozproszone Ślady OpenTelemetry (2 wpisy) ===
-Czas (UTC)           | Identyfikator Śladu (Trace ID)     | Metoda         | Użytkownik                 | Status  
---------------------------------------------------------------------------------------------------------------
-2026-09-18 11:43:09  | 5379e14ddba2e5c1860cefde7554f4c3   | StreamAssist   | user@example.com           | SUCCESS 
-2026-09-18 11:31:08  | bd5b4d06073dd350c3cbe37912532b4c   | StreamAssist   | user@example.com           | SUCCEEDED
-```
+### 📈 Adopcja i Trendy w Organizacji
+- *"Pokaż ranking 5 najbardziej aktywnych użytkowników platformy pod względem zapytań i tokenów."*
+- *"Jak kształtuje się wskaźnik DAU (Daily Active Users) w ciągu ostatnich 30 dni?"*
+- *"Jak wygląda łączna dynamika zapytań i wolumenu tokenów w porównaniu do ubiegłego tygodnia?"*
 
-### 3. Trendy Adopcji Organizacji (DAU, Zdarzenia, Zapytania)
-```bash
-python3 cli/telemetry_cli.py adoption --days 14
-```
-
-### 4. Bieżące Limity Kwotowe i Zasady Resetu
-```bash
-python3 cli/telemetry_cli.py quotas
-```
-
-### 5. Eksport Pełnego Raportu Markdown
-```bash
-python3 cli/telemetry_cli.py report --output raport_adopcji.md
-```
+### ⏱️ Limity Kwotowe i Stabilność Platformy
+- *"Jaki jest bieżący stan limitów kwotowych (quotas) i czy zbliżamy się do limitów organizacji?"*
+- *"Czy w ostatnich 24 godzinach odnotowano błędy zapytań lub anomalie czasów odpowiedzi (TTFT)?"*
 
 ---
 
-## Widoki Analityczne SQL w BigQuery
+## 📊 Śledzone Metryki
 
-Zbiór danych `gemini_enterprise_telemetry` udostępnia 6 zoptymalizowanych widoków analitycznych:
-
-1. **`v_user_daily_utilization`**: Dokładne rozbicie utylizacji każdego użytkownika na poszczególne dni (zdarzenia, zapytania, deep research, agenty, tokeny). Automatycznie łączy strumienie w czasie rzeczywistym z historią.
-2. **`v_observability_traces`**: Rozproszone ślady OpenTelemetry łączące `trace_id`, `span_id`, użytkownika, wywołaną metodę oraz status wykonania odpowiedzi.
-3. **`v_user_summary`**: Całościowe zagregowane statystyki per użytkownik od początku rejestracji.
-4. **`v_daily_adoption`**: Wskaźniki adopcji organizacji (DAU, łączna liczba interakcji, zapytań i spalonych tokenów).
-5. **`v_feature_usage`**: Wykorzystanie poszczególnych modułów i funkcji Gemini Enterprise.
-6. **`v_user_utilization`**: Widok kompatybilności wstecznej (alias do `v_user_daily_utilization`).
-
-Przykładowe zapytanie analityczne SQL:
-```sql
-SELECT 
-  activity_date,
-  user_id, 
-  total_events,
-  assistant_queries, 
-  agents_created,
-  total_tokens
-FROM `<PROJECT_ID>.gemini_enterprise_telemetry.v_user_daily_utilization`
-WHERE activity_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 14 DAY)
-ORDER BY activity_date DESC, total_events DESC;
-```
+| Kategoria | Mierzone Wymiary | Źródło Danych |
+| :--- | :--- | :--- |
+| **Zapytania i Czat** | Wolumen promptów, odpowiedzi, głębokość konwersacji (tury/sesję) | BigQuery + Cloud Monitoring |
+| **Deep Research** | Unikalne sesje wieloetapowego badania rynku/wiedzy | BigQuery (`agents/deep_research`) |
+| **Generowanie Obrazów** | Liczba wygenerowanych grafik Imagen | BigQuery (`is_image_generation`) |
+| **Tworzenie Agentów** | Liczba utworzonych i edytowanych agentów customowych | Cloud Audit Logs (`CreateAgent`) |
+| **Konsumpcja Tokenów** | Tokeny wejściowe (prompt), wyjściowe i buforowane (cache) | BigQuery (`gen_ai_client_inference`) |
+| **Adopcja UX** | Wskaźniki DAU / WAU / MAU, retencja użytkowników | BigQuery (`v_daily_adoption`) |
+| **Limity Kwotowe** | Zapytania, agenty, deep research, WTU developerów, storage | Cloud Monitoring (`quota/*`) |
+| **Wydajność i Błędy** | Czas do 1. tokena (TTFT), spany OTel, kody HTTP / statusy RPC | Cloud Trace & Audit Logs |
 
 ---
 
-## Dynamiczny Agent Telemetrii w Gemini Enterprise (Google ADK & Agent Runtime)
+## 🏛️ Architektura w Pigułce
 
-W odróżnieniu od statycznych promptów snapshotowych, to rozwiązanie wdraża **w pełni autonomicznego i dynamicznego Agenta ADK (Google Agent Development Kit)**, hostowanego w zarządzanym środowisku **Vertex AI Agent Runtime (Reasoning Engine)** i zintegrowanego natywnie z aplikacją **Gemini Enterprise**:
-
-- **Oficjalna Nazwa**: `Gemini Enterprise Telemetry & Adoption Agent`
-- **Środowisko Uruchomieniowe**: Vertex AI Agent Runtime (Reasoning Engine w regionie aplikacji, np. `europe-west1` dla silników `eu`)
-- **Silnik Bazowy**: `gemini-2.5-flash`
-- **Architektura Dynamicznych Narzędzi (Zero Prompt Injection)**:
-  Agent nie posiada zahardkodowanych danych ani jednorazowych zrzutów w instrukcji systemowej. Przy **każdym pytaniu użytkownika** agent w czasie rzeczywistym autonomicznie wybiera i wywołuje jedno lub więcej narzędzi w Pythonie, bezpośrednio odpytując BigQuery oraz Cloud Monitoring API:
-  
-  1. `get_user_daily_utilization(user_email, days)`: Pobiera dokładne dzienne rozbicie aktywności wskazanego użytkownika z widoku BigQuery `v_user_daily_utilization` (zapytania, tokeny prompt/response/cache, Deep Research, agenty).
-  2. `get_user_summary(user_email)`: Zwraca łączne statystyki dla danego użytkownika lub generuje ranking najbardziej aktywnych użytkowników w organizacji.
-  3. `get_daily_adoption(days)`: Pobiera trendy DAU (Daily Active Users), łączną liczbę interakcji, sesji badawczych i spalonych tokenów z widoku `v_daily_adoption`.
-  4. `get_realtime_quotas()`: Bada w czasie rzeczywistym stan limitów kwotowych (RPM, TPM, headroom) oraz utylizację w Google Cloud Monitoring.
-  5. `get_observability_traces(days)`: Bada rozproszone ślady OpenTelemetry, liczbę zapytań w oknach czasowych, stany odpowiedzi oraz błędy z widoku `v_observability_traces`.
-
-### Wdrożenie Agenta ADK i Rejestracja w Gemini Enterprise:
-
-Agent jest wdrażany jako zarządzana usługa **Vertex AI Agent Runtime (Reasoning Engine)**, a następnie rejestrowany w silniku Gemini Enterprise (`Discovery Engine`) z flagą pełnego współdzielenia dla wszystkich uprawnionych użytkowników organizacji:
-
-```bash
-python3 agent/deploy_adk_agent.py \
-    --project=<PROJECT_ID> \
-    --location=eu \
-    --vertex-location=europe-west1 \
-    --engine=<ENGINE_ID_LUB_NAZWA> \
-    --dataset=gemini_enterprise_telemetry
+```
+[Gemini Enterprise Engine] (OpenTelemetry + Audit Logs)
+           │
+           ├─► Cloud Logging Sink ──► BigQuery (Partycjonowane tabele & 6 widoków SQL)
+           ├─► Cloud Monitoring   ──► Quotas API, TTFT, Sesje & Dashboard
+           │
+           └─► Vertex AI Reasoning Engine (ADK Agent: gemini-2.5-flash)
+                    │
+                    └─► Gemini Enterprise Assistant (Współdzielenie: ALL_USERS)
 ```
 
-> [!NOTE]
-> **Co automatyzuje skrypt `deploy_adk_agent.py`?**
-> 1. **Automatyczne uprawnienia IAM**: Nadaje automatycznie kontu usługi Reasoning Engine (`service-{PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com`) role `roles/bigquery.jobUser`, `roles/monitoring.viewer`, `roles/cloudtrace.user` oraz uprawnienie `READER` do zbioru BigQuery.
-> 2. **Pakowanie i kompilacja kontenera**: Generuje kod agenta i wdraża instancję Reasoning Engine w wybranym regionie (`europe-west1`).
-> 3. **Współdzielenie w organizacji (`ALL_USERS`)**: Rejestruje agenta w Gemini Enterprise z konfiguracją `"sharingConfig": {"scope": "ALL_USERS"}` i statusem `ENABLED`, dzięki czemu agent jest widoczny dla każdego użytkownika z dostępem do aplikacji.
-> 4. **Brak prompt injection**: Agent nie zawiera w prompcie żadnych statycznych zrzutów danych. Każde zapytanie powoduje dynamiczne odpytanie BigQuery/Monitoring w czasie rzeczywistym.
+1. **Brak Parsowania Regexem Tekstu**: Zdarzenia i tokeny są ściśle powiązane po natywnych identyfikatorach śladów OpenTelemetry (`trace_id`, `span_id`).
+2. **Matematyczna Integralność (Zero Double-Counting)**: Klauzule `QUALIFY ROW_NUMBER() ...` gwarantują eliminację duplikatów i iloczynów kartezjańskich.
+3. **Idempotentność**: Każdy komponent instalatora oraz skryptu wstecznej ingestji (`backfill`) może być uruchamiany wielokrotnie bez powielania danych.
 
 ---
 
-## Współdzielenie Agenta w Organizacji (`ALL_USERS`) i Uprawnienia IAM
+## 🔍 Widoki Analityczne w BigQuery (`gemini_enterprise_telemetry`)
 
-Aby pracownicy i administratorzy mogli korzystać z Agenta Telemetrii w interfejsie webowym Gemini Enterprise, konfiguracja współdzielenia agenta jest ustawiona na `ALL_USERS`:
+- **`v_user_daily_utilization`** — Dzienny profil utylizacji per użytkownik (zapytania, obrazy, badania, agenty, błędy, tokeny wejścia/wyjścia/cache).
+- **`v_daily_adoption`** — Globalne trendy organizacji: DAU, łączna liczba akcji, zapytań, tokenów i unikalnych użytkowników.
+- **`v_user_summary`** — Zagregowane statystyki całokształtu aktywności per użytkownik (do rankingów i audytu).
+- **`v_feature_usage`** — Wykorzystanie poszczególnych modułów (Czat, Deep Research, Imagen, Agent Designer).
+- **`v_observability_traces`** — Rozproszone ślady OpenTelemetry, korelacja spanów i czasy odpowiedzi.
+- **`v_token_telemetry`** — Szczegółowe metryki zużycia tokenów modeli językowych.
 
-```json
-{
-  "displayName": "Gemini Enterprise Telemetry & Adoption Agent",
-  "state": "ENABLED",
-  "sharingConfig": {
-    "scope": "ALL_USERS"
-  }
-}
-```
+---
 
-### Wymagane Role IAM dla Użytkowników Końcowych:
-Aby użytkownik mógł zalogować się do aplikacji Gemini Enterprise i rozmawiać ze współdzielonym Agentem Telemetrii, administrator musi nadać mu w projekcie dwie role:
-1. `roles/discoveryengine.user` (Discovery Engine User) – dostęp do silnika wyszukiwania i asystenta.
-2. `roles/discoveryengine.agentspaceUser` (Agent Space User) – uprawnienie do interakcji w przestrzeni agentów Gemini.
+## 👥 Uprawnienia IAM dla Użytkowników
 
-Nadanie uprawnień za pomocą gcloud:
+Aby użytkownicy w organizacji mogli korzystać z Agenta Telemetrii w portalu Gemini Enterprise, wystarczy nadać im role dostępowe do aplikacji:
+
 ```bash
 # Dla pojedynczego użytkownika:
-gcloud projects add-iam-policy-binding <PROJECT_ID> \
-    --member="user:uzytkownik@twoja-firma.com" \
-    --role="roles/discoveryengine.user"
+gcloud projects add-iam-policy-binding <PROJECT_ID>     --member="user:uzytkownik@twoja-firma.com"     --role="roles/discoveryengine.user"
 
-gcloud projects add-iam-policy-binding <PROJECT_ID> \
-    --member="user:uzytkownik@twoja-firma.com" \
-    --role="roles/discoveryengine.agentspaceUser"
-
-# Dla całej grupy Google Workspace / Cloud Identity:
-gcloud projects add-iam-policy-binding <PROJECT_ID> \
-    --member="group:wszyscy-pracownicy@twoja-firma.com" \
-    --role="roles/discoveryengine.user"
-
-gcloud projects add-iam-policy-binding <PROJECT_ID> \
-    --member="group:wszyscy-pracownicy@twoja-firma.com" \
-    --role="roles/discoveryengine.agentspaceUser"
+gcloud projects add-iam-policy-binding <PROJECT_ID>     --member="user:uzytkownik@twoja-firma.com"     --role="roles/discoveryengine.agentspaceUser"
 ```
 
 ---
 
-## Zestaw 15 Zautomatyzowanych Scenariuszy Testowych (`tests/test_suite.py`)
+## 🧪 Zautomatyzowane Testy E2E (15/15)
 
-Repozytorium zawiera kompletny, w pełni zautomatyzowany pakiet 15 testów jednostkowych i integracyjnych uruchamianych poleceniem:
+Pakiet zawiera zestaw testów regresyjnych i integracyjnych:
 
 ```bash
 python3 -m unittest discover -s tests -p "test_suite.py" -v
 ```
 
-| Nr | Nazwa Scenariusza Testowego | Zakres i Weryfikowane Niezmienniki |
-| :- | :--- | :--- |
-| **1** | `test_01_syntax_and_compilation` | Kompilacja wszystkich plików Pythona, brak błędów składniowych i weryfikacja multi-tenant hygiene (brak hardkodowanych ID projektów). |
-| **2** | `test_02_engine_resolution_and_error_handling` | Dynamiczne rozpoznawanie silnika po nazwie wyświetlanej, pełnym ID lub fallback do pierwszego dostępnego silnika. |
-| **3** | `test_03_automated_reasoning_engine_iam_setup` | Weryfikacja uprawnień konta usługi Reasoning Engine (`roles/bigquery.jobUser`, `roles/monitoring.viewer`, `READER` w BigQuery). |
-| **4** | `test_04_bigquery_tables_and_partitioning` | Idempotentność i weryfikacja schematu tabel BigQuery oraz partycjonowania po polu `timestamp`. |
-| **5** | `test_05_backfill_idempotency_and_schema` | Wsteczna ingestja logów z Cloud Logging i mapowanie pól audit, activity oraz inference tokenów. |
-| **6** | `test_06_bigquery_views_syntax_and_compilation` | Kompilacja i parametryzacja 6 widoków analitycznych SQL w BigQuery (SQL DDL Dry-Run). |
-| **7** | `test_07_mathematical_invariants` | Spójność matematyczna: suma zdarzeń $\ge$ suma akcji, łączna liczba tokenów $=$ wejściowe $+$ wyjściowe, brak wartości ujemnych. |
-| **8** | `test_08_token_trace_correlation_precision` | Precyzja korelacji tokenów po identyfikatorach śladów OpenTelemetry (Zero Double-Counting, brak iloczynu kartezjańskiego). |
-| **9** | `test_09_feature_classification_precision` | Rygorystyczna separacja funkcjonalności (klasyfikacja sesji asystenta, zapytań Deep Research i tworzenia agentów). |
-| **10** | `test_10_cloud_monitoring_and_opentelemetry_traces` | Integracja z Cloud Monitoring API (limity kwotowe, wskaźniki zdrowia) oraz rozproszone ślady OTel. |
-| **11** | `test_11_adk_agent_definition_and_tools` | Poprawność definicji Agenta ADK (`google.adk.agents.Agent`), 5 narzędzi oraz serializacja cloudpickle. |
-| **12** | `test_12_reasoning_engine_deployment_state` | Weryfikacja wdrożenia i stanu `ACTIVE` instancji Reasoning Engine w Vertex AI. |
-| **13** | `test_13_gemini_enterprise_agent_sharing_and_registration` | Weryfikacja rejestracji agenta w Discovery Engine, stanu `ENABLED` oraz konfiguracji `sharingConfig.scope: ALL_USERS`. |
-| **14** | `test_14_dynamic_user_query_by_days` | Dynamiczne odpytanie per-user z filtrowaniem po dniach na żywym BigQuery dla wielu użytkowników (`admin`, `damian.przekop@gmail.com`). |
-| **15** | `test_15_dynamic_multi_user_adoption_and_summary` | Dynamiczne generowanie rankingu adopcji użytkowników i podsumowania metryk organizacji bez statycznego prompt injection. |
+Zakres testów obejmuje:
+- Składnię i multi-tenant hygiene (brak hardkodowanych identyfikatorów),
+- Dynamiczne dopasowanie silnika i idempotentność tworzenia tabel,
+- Integralność niezmienników matematycznych (spójność sum zdarzeń i tokenów),
+- Precyzję korelacji śladów OTel i eliminację podwójnego zliczania,
+- Stan wdrożenia Agenta w Vertex AI Reasoning Engine i współdzielenie `ALL_USERS`.
 
 ---
 
-## Struktura Katalogów Repozytorium
+## 📁 Struktura Repozytorium
 
 ```text
 gemini-enterprise-telemetry/
-├── README.md                   # Główny opis projektu i dokumentacja (PL)
-├── MANUAL.md                   # Szczegółowy podręcznik wdrożenia i procedury operacyjne (PL)
-├── LICENSE                     # Licencja Apache 2.0
-├── .gitignore                  # Reguły ignorowania plików git
-├── scripts/
-│   ├── deploy_pipeline.sh      # Główny skrypt automatycznego wdrożenia potoku
-│   ├── setup_bigquery_sink.sh  # Konfiguracja zbioru BigQuery i zlewu Cloud Logging
-│   ├── backfill_logs_to_bigquery.py # Wsadowe uzupełnienie logów historycznych
-│   └── push_to_github.sh       # Bezpieczny skrypt publikacji do repozytorium GitHub
+├── deploy.sh                   # Szybki skrypt uruchomieniowy
+├── deploy.py                   # Główny zintegrowany instalator Zero-Touch
+├── MANUAL.md                   # Podręcznik wdrożeniowy dla administratorów
 ├── bigquery/
-│   └── telemetry_views.sql     # Definicje 6 widoków analitycznych SQL w BigQuery
+│   └── telemetry_views.sql     # 6 analitycznych widoków SQL
+├── agent/
+│   ├── adk_telemetry_agent.py  # Kod Agenta ADK i definicje narzędzi
+│   └── deploy_adk_agent.py     # Wdrożenie do Vertex AI Reasoning Engine
+├── cli/
+│   ├── telemetry_service.py    # Warstwa dostępu do danych (BigQuery/Monitoring)
+│   └── telemetry_cli.py        # Narzędzie konsolowe CLI
+├── scripts/
+│   ├── backfill_logs_to_bigquery.py  # Idempotentny backfill historii logów
+│   └── simulate_mock_user_activity.py # Symulacja aktywności testowej
 ├── monitoring/
 │   └── gemini_enterprise_telemetry_dashboard.json # Definicja dashboardu Cloud Monitoring
-├── cli/
-│   ├── telemetry_service.py    # Moduł integrujący BigQuery i Cloud Monitoring
-│   └── telemetry_cli.py        # Interfejs wiersza poleceń (CLI) dla administratorów
-├── agent/
-│   ├── adk_telemetry_agent.py  # Autonomiczny Agent ADK z dynamicznymi narzędziami BigQuery/Monitoring
-│   ├── deploy_adk_agent.py     # Skrypt wdrażający agenta do Vertex AI Reasoning Engine i rejestrujący w Gemini
-│   ├── telemetry_agent_definition.json # Kopia zapasowa konfiguracji agenta w formacie JSON
-│   └── deploy_agent.py         # Skrypt pomocniczy / legacy
-├── deploy.py                   # Główny zintegrowany instalator potoku Zero-Touch
-├── terraform/                  # Moduł Infrastructure-as-Code (Terraform)
-│   ├── main.tf
-│   ├── variables.tf
-│   └── outputs.tf
-└── skills/
-    └── gemini-enterprise-telemetry/
-        └── SKILL.md            # Umiejętność Antigravity do powielania wdrożeń
+├── terraform/                  # Opcjonalne wdrożenie Infrastructure-as-Code
+└── tests/
+    └── test_suite.py           # Zestaw 15 zautomatyzowanych testów E2E
 ```
 
 ---
 
 ## Licencja
 
-Oprogramowanie udostępniane na licencji Apache License 2.0. Szczegóły w pliku [LICENSE](LICENSE).
+Apache License 2.0. Szczegóły w pliku [LICENSE](LICENSE).
