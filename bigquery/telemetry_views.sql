@@ -174,6 +174,11 @@ raw_audit AS (
       ELSE 0 
     END AS is_custom_agent_created
   FROM `{project_id}.{dataset_id}.cloudaudit_googleapis_com_activity`
+  WHERE NOT COALESCE(
+    NULLIF(principal_email, ""),
+    NULLIF(JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.authenticationInfo.principalEmail"), ""),
+    ""
+  ) LIKE "%@gcp-sa-%.iam.gserviceaccount.com"
   QUALIFY ROW_NUMBER() OVER(
     PARTITION BY COALESCE(NULLIF(insert_id, ""), NULLIF(insertId, ""), CONCAT(CAST(timestamp AS STRING), "_", COALESCE(method_name, JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.methodName"), "")))
     ORDER BY timestamp
