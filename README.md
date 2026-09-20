@@ -13,7 +13,7 @@ Pakiet obejmuje automatyczną strumieniową i wsadową ingestję logów do BigQu
 - **Wskaźniki Zaangażowania i Adopcji UX**: Śledzenie głębokości konwersacji (Conversational Depth: liczba tur/interakcji na sesję), wskaźnika adopcji narzędzi (Tool Adoption Rate: % sesji z narzędziami) oraz postrzeganej responsywności (Time to First Token - TTFT).
 - **Analityka Adopcji w Skali Organizacji**: Monitorowanie liczby aktywnych użytkowników: DAU (Daily Active Users), WAU (Weekly) i MAU (Monthly), łącznego wolumenu promptów oraz trendów retencji.
 - **Monitoring Limitów Kwotowych (Pooled Quotas & Overages)**: Bieżące śledzenie limitów puli organizacji i tempa ich zużycia (zapytania asystenta, Agent Builder, Deep Research, generowanie obrazów i wideo, kredyty WTU dla narzędzi deweloperskich, przestrzeń dyskowa).
-- **Konwersacyjny Agent Telemetrii i Obserwowalności**: Agent AI wdrożony bezpośrednio w silniku Gemini Enterprise (`rossmann-agent-designer` / Agent Builder), który rozpoczyna każdą konwersację od **oświadczenia przedstawiającego zakres oferowanych metryk** i odpowiada na zapytania administratorów w języku naturalnym.
+- **Konwersacyjny Agent Telemetrii i Obserwowalności**: Agent AI wdrożony bezpośrednio w silniku Gemini Enterprise (Discovery Engine / Agent Builder), który rozpoczyna każdą konwersację od **oświadczenia przedstawiającego zakres oferowanych metryk** i odpowiada na zapytania administratorów w języku naturalnym.
 - **Wizualny Dashboard Cloud Monitoring**: Wykresy i panele przedstawiające limity kwotowe vs. bieżące użycie, opóźnienia TTFT, liczbę sesji i tur oraz wykorzystanie narzędzi.
 - **Kompletny Podręcznik Wdrożenia (Runbook)**: Szczegółowa instrukcja wdrożenia krok po kroku dla administratorów klienta opisana w pliku [MANUAL.md](MANUAL.md).
 - **Automatyczne Wdrożenie Jednym Poleceniem**: Skrypt powłoki (`deploy_pipeline.sh`) oraz moduł Terraform (`terraform/`) umożliwiający natychmiastowe uruchomienie w dowolnym projekcie Google Cloud.
@@ -25,7 +25,7 @@ Pakiet obejmuje automatyczną strumieniową i wsadową ingestję logów do BigQu
 
 ```
                                   Gemini Enterprise
-                            (rossmann-agent-designer w eu)
+                       (Dowolny silnik w wybranym regionie)
                                           │
                   ┌───────────────────────┴───────────────────────┐
                   ▼                                               ▼
@@ -137,7 +137,7 @@ python3 cli/telemetry_cli.py observability --traces
 *Przykładowy wynik:*
 ```text
 === Gemini Enterprise: Metryki Obserwowalności i OpenTelemetry ===
-• Identyfikator Silnika:       rossmann-agent-designer_1784194686764
+• Identyfikator Silnika:       <ENGINE_ID> (np. my-gemini-app_1234567890)
 • Lokalizacja:                 eu
 • Obserwowalność Włączona:     True
 • Wrażliwe Logowanie Włączone: True
@@ -196,7 +196,7 @@ SELECT
   assistant_queries, 
   agents_created,
   total_tokens
-FROM `adk-dev-485808.gemini_enterprise_telemetry.v_user_daily_utilization`
+FROM `<PROJECT_ID>.gemini_enterprise_telemetry.v_user_daily_utilization`
 WHERE activity_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 14 DAY)
 ORDER BY activity_date DESC, total_events DESC;
 ```
@@ -205,20 +205,20 @@ ORDER BY activity_date DESC, total_events DESC;
 
 ## Agent Telemetrii w Gemini Enterprise
 
-Agent został wdrożony bezpośrednio w silniku Gemini Enterprise za pośrednictwem API Discovery Engine:
+Agent jest wdrażany bezpośrednio w silniku Gemini Enterprise za pośrednictwem API Discovery Engine:
 
 - **Wyświetlana Nazwa**: `Gemini Enterprise Telemetry & Adoption Monitor`
-- **Lokalizacja**: `eu`
-- **Identyfikator Silnika**: `rossmann-agent-designer_1784194686764`
+- **Lokalizacja**: np. `eu` lub `us`
+- **Identyfikator Silnika**: Twój silnik docelowy (`<ENGINE_ID>`)
 - **Model**: `gemini-2.5-flash`
 - **Oświadczenie Powitalne**: Przy rozpoczęciu konwersacji agent natychmiast przedstawia 4 filary oferowanych metryk (utylizacja dzienna per-user, adopcja/zaangażowanie, obserwowalność i ślady, limity kwotowe).
 - **Zdolności Konwersacyjne**: Odpowiada na zapytania w języku naturalnym, generuje tabele dzień-po-dniu dla podanego użytkownika, analizuje TTFT i czasy odpowiedzi oraz ostrzega o limitach kwotowych.
 
 Aby zaktualizować lub ponownie wdrożyć agenta:
 ```bash
-GOOGLE_CLOUD_PROJECT=adk-dev-485808 \
-GOOGLE_CLOUD_LOCATION=eu \
-GEMINI_ENGINE_ID=rossmann-agent-designer_1784194686764 \
+GOOGLE_CLOUD_PROJECT=<PROJECT_ID> \
+GOOGLE_CLOUD_LOCATION=<LOCATION> \
+GEMINI_ENGINE_ID=<ENGINE_ID> \
 python3 agent/deploy_agent.py
 ```
 

@@ -1,7 +1,6 @@
 variable "project_id" {
   description = "Identyfikator projektu Google Cloud"
   type        = string
-  default     = "adk-dev-485808"
 }
 
 variable "region" {

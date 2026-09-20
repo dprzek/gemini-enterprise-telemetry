@@ -178,7 +178,7 @@ python3 scripts/backfill_logs_to_bigquery.py <PROJECT_ID> <DATASET_ID> 30
 
 ### Krok 5.4: Wdrożenie Widoków Analitycznych SQL w BigQuery
 ```bash
-sed "s/adk-dev-485808/<PROJECT_ID>/g; s/gemini_enterprise_telemetry/<DATASET_ID>/g" \
+sed "s/{project_id}/<PROJECT_ID>/g; s/{dataset_id}/<DATASET_ID>/g" \
   bigquery/telemetry_views.sql | bq query --project_id=<PROJECT_ID> --use_legacy_sql=false
 ```
 
@@ -226,7 +226,7 @@ python3 cli/telemetry_cli.py observability --traces
 *Przykładowa odpowiedź:*
 ```text
 === Gemini Enterprise: Metryki Obserwowalności i OpenTelemetry ===
-• Identyfikator Silnika:       rossmann-agent-designer_1784194686764
+• Identyfikator Silnika:       <ENGINE_ID> (np. my-gemini-app_1234567890)
 • Lokalizacja:                 eu
 • Obserwowalność Włączona:     True
 • Wrażliwe Logowanie Włączone: True

@@ -13,10 +13,10 @@ from telemetry_service import TelemetryService
 
 def main():
     parser = argparse.ArgumentParser(description="CLI do Telemetrii, Adopcji i Obserwowalności Gemini Enterprise")
-    parser.add_argument("--project", default=os.environ.get("GOOGLE_CLOUD_PROJECT", "adk-dev-485808"), help="Identyfikator projektu GCP")
-    parser.add_argument("--dataset", default="gemini_enterprise_telemetry", help="Identyfikator zbioru danych BigQuery")
-    parser.add_argument("--engine", default="rossmann-agent-designer_1784194686764", help="Identyfikator silnika Discovery Engine")
-    parser.add_argument("--location", default="eu", help="Lokalizacja Google Cloud (np. eu, us)")
+    parser.add_argument("--project", default=os.environ.get("GOOGLE_CLOUD_PROJECT"), help="Identyfikator projektu GCP (domyślnie z $GOOGLE_CLOUD_PROJECT)")
+    parser.add_argument("--dataset", default=os.environ.get("DATASET_ID", "gemini_enterprise_telemetry"), help="Identyfikator zbioru danych BigQuery")
+    parser.add_argument("--engine", default=os.environ.get("GEMINI_ENGINE_ID"), help="Identyfikator silnika Discovery Engine (np. my-app lub pełne ID)")
+    parser.add_argument("--location", default=os.environ.get("GOOGLE_CLOUD_LOCATION", "eu"), help="Lokalizacja Google Cloud (np. eu, us)")
     
     subparsers = parser.add_subparsers(dest="command", required=True)
 

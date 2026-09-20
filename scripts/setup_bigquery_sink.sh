@@ -4,7 +4,11 @@
 # ==============================================================================
 set -euo pipefail
 
-PROJECT_ID="${1:-${GOOGLE_CLOUD_PROJECT:-adk-dev-485808}}"
+PROJECT_ID="${1:-${GOOGLE_CLOUD_PROJECT:-$(gcloud config get-value project 2>/dev/null || echo '')}}"
+if [ -z "${PROJECT_ID}" ]; then
+  echo "Błąd: Brak identyfikatora projektu GCP. Podaj go jako 1. argument lub ustaw zmienną GOOGLE_CLOUD_PROJECT."
+  exit 1
+fi
 LOCATION="${2:-EU}"
 DATASET_ID="${3:-gemini_enterprise_telemetry}"
 SINK_NAME="${4:-gemini-enterprise-telemetry-sink}"

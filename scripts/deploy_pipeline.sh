@@ -5,7 +5,7 @@
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-ENGINE_ID="${1:-${GEMINI_ENGINE_ID:-test-test-test}}"
+ENGINE_ID="${1:-${GEMINI_ENGINE_ID:-}}"
 PROJECT_ID="${2:-${GOOGLE_CLOUD_PROJECT:-}}"
 LOCATION="${3:-${GOOGLE_CLOUD_LOCATION:-eu}}"
 DATASET_ID="${4:-gemini_enterprise_telemetry}"

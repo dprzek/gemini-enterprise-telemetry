@@ -232,8 +232,17 @@ def run_backfill(client, project_id, dataset_id, days=30):
     print("✔ Wsteczna ingestja logów zakończona sukcesem!")
 
 if __name__ == "__main__":
-    p_id = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("GOOGLE_CLOUD_PROJECT", "adk-dev-485808")
-    d_id = sys.argv[2] if len(sys.argv) > 2 else "gemini_enterprise_telemetry"
+    p_id = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("GOOGLE_CLOUD_PROJECT")
+    if not p_id:
+        try:
+            import subprocess
+            p_id = subprocess.check_output(["gcloud", "config", "get-value", "project"], text=True).strip()
+        except Exception:
+            pass
+    if not p_id:
+        print("Błąd: Nie podano identyfikatora projektu GCP. Użyj: python3 backfill_logs_to_bigquery.py <PROJECT_ID>")
+        sys.exit(1)
+    d_id = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("DATASET_ID", "gemini_enterprise_telemetry")
     d_days = int(sys.argv[3]) if len(sys.argv) > 3 else 30
     bq_client = bigquery.Client(project=p_id)
     run_backfill(bq_client, p_id, d_id, d_days)

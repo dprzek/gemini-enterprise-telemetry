@@ -15,46 +15,59 @@ from google.auth.transport.requests import Request
 from google.cloud import bigquery
 
 class TelemetryService:
-    def __init__(self, project_id="adk-dev-485808", dataset_id="gemini_enterprise_telemetry", location="eu", engine_id="rossmann-agent-designer_1784194686764"):
-        self.project_id = project_id
+    def __init__(self, project_id=None, dataset_id="gemini_enterprise_telemetry", location="eu", engine_id=None):
+        if not project_id:
+            project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
+        if not project_id:
+            try:
+                import subprocess
+                project_id = subprocess.check_output(["gcloud", "config", "get-value", "project"], text=True).strip()
+            except Exception:
+                pass
+        self.project_id = project_id or "default-project"
         self.dataset_id = dataset_id
         self.location = location
-        self.engine_id = engine_id
-        self.credentials, _ = google.auth.default()
+        self.engine_id = engine_id or os.environ.get("GEMINI_ENGINE_ID")
+        self.credentials, default_proj = google.auth.default()
+        if self.project_id == "default-project" and default_proj:
+            self.project_id = default_proj
         self.bq_client = bigquery.Client(project=self.project_id, credentials=self.credentials)
         self.engine_id = self._resolve_engine_id()
 
     def _resolve_engine_id(self):
         """
         Automatycznie dopasowuje engine_id, sprawdzając bezpośrednie dopasowanie,
-        wartość displayName lub prefiks zasobu (np. 'test-app-123' -> 'test-app-123_1789757145270').
+        wartość displayName lub prefiks zasobu (np. 'my-app' -> 'my-app_1234567890').
+        Jeśli engine_id nie podano, pobiera pierwszy dostępny silnik w projekcie.
         """
-        if not self.engine_id:
-            return self.engine_id
         try:
             api_host = f"{self.location}-discoveryengine.googleapis.com" if self.location != "global" else "discoveryengine.googleapis.com"
             token = self._get_access_token()
             
-            # 1. Sprawdź czy engine_id działa bezpośrednio
-            direct_url = f"https://{api_host}/v1alpha/projects/{self.project_id}/locations/{self.location}/collections/default_collection/engines/{self.engine_id}"
-            req = urllib.request.Request(direct_url, headers={"Authorization": f"Bearer {token}", "X-Goog-User-Project": self.project_id})
-            try:
-                with urllib.request.urlopen(req) as resp:
-                    if resp.status == 200:
+            # 1. Jeśli podano engine_id, sprawdź czy działa bezpośrednio
+            if self.engine_id:
+                direct_url = f"https://{api_host}/v1alpha/projects/{self.project_id}/locations/{self.location}/collections/default_collection/engines/{self.engine_id}"
+                req = urllib.request.Request(direct_url, headers={"Authorization": f"Bearer {token}", "X-Goog-User-Project": self.project_id})
+                try:
+                    with urllib.request.urlopen(req) as resp:
+                        if resp.status == 200:
+                            return self.engine_id
+                except urllib.error.HTTPError as e:
+                    if e.code != 404:
                         return self.engine_id
-            except urllib.error.HTTPError as e:
-                if e.code != 404:
-                    return self.engine_id
 
-            # 2. Jeśli zwrócono 404, wylistuj silniki i znajdź dopasowanie po displayName lub prefiksie
+            # 2. Wylistuj silniki i znajdź dopasowanie lub wybierz pierwszy dostępny
             list_url = f"https://{api_host}/v1alpha/projects/{self.project_id}/locations/{self.location}/collections/default_collection/engines"
             req = urllib.request.Request(list_url, headers={"Authorization": f"Bearer {token}", "X-Goog-User-Project": self.project_id})
             with urllib.request.urlopen(req) as resp:
                 data = json.load(resp)
-                for eng in data.get("engines", []):
+                engines = data.get("engines", [])
+                if not self.engine_id and engines:
+                    return engines[0].get("name", "").split("/")[-1]
+                for eng in engines:
                     eid = eng.get("name", "").split("/")[-1]
                     dname = eng.get("displayName", "")
-                    if dname == self.engine_id or eid == self.engine_id or eid.startswith(f"{self.engine_id}_"):
+                    if self.engine_id and (dname == self.engine_id or eid == self.engine_id or eid.startswith(f"{self.engine_id}_")):
                         return eid
         except Exception:
             pass

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Deploy the Gemini Enterprise Telemetry, Adoption & Observability Agent to Discovery Engine.
-Deploys to the specified engine and assistant (default: rossmann-agent-designer in eu).
+Deploys to the specified engine and assistant.
 Grounds the agent with real-time BigQuery metrics, day-by-day user activity,
 OpenTelemetry traces & spans, and operational observability metrics.
 """
@@ -29,25 +29,39 @@ parser.add_argument("--engine", "-e", dest="flag_engine", default=None, help="ID
 parser.add_argument("--assistant", "-a", dest="flag_assistant", default=None, help="ID Asystenta")
 args, _ = parser.parse_known_args()
 
-PROJECT_ID = args.flag_project or args.pos_project or os.environ.get("GOOGLE_CLOUD_PROJECT", "adk-dev-485808")
+PROJECT_ID = args.flag_project or args.pos_project or os.environ.get("GOOGLE_CLOUD_PROJECT")
+if not PROJECT_ID:
+    try:
+        import subprocess
+        PROJECT_ID = subprocess.check_output(["gcloud", "config", "get-value", "project"], text=True).strip()
+    except Exception:
+        pass
+if not PROJECT_ID:
+    print("Błąd: Nie podano identyfikatora projektu GCP. Użyj argumentu --project <PROJECT_ID> lub zmiennej GOOGLE_CLOUD_PROJECT.")
+    sys.exit(1)
+
 LOCATION = args.flag_location or args.pos_location or os.environ.get("GOOGLE_CLOUD_LOCATION", "eu")
-ENGINE_ID = args.flag_engine or args.pos_engine or os.environ.get("GEMINI_ENGINE_ID", "rossmann-agent-designer_1784194686764")
+ENGINE_ID = args.flag_engine or args.pos_engine or os.environ.get("GEMINI_ENGINE_ID")
 ASSISTANT_ID = args.flag_assistant or os.environ.get("GEMINI_ASSISTANT_ID", "default_assistant")
 
 print("======================================================================")
 print("Wdrażanie Agenta Telemetrii, Adopcji i Obserwowalności Gemini Enterprise")
 print(f"  Projekt:      {PROJECT_ID}")
 print(f"  Lokalizacja:  {LOCATION}")
-print(f"  Silnik:       {ENGINE_ID}")
+print(f"  Silnik:       {ENGINE_ID or '(automatyczne wykrycie)'}")
 print(f"  Asystent:     {ASSISTANT_ID}")
 print("======================================================================")
 
 # 1. Pobieranie bieżących danych telemetrycznych i wskaźników obserwowalności
 print("--> Pobieranie aktywności, rozbicia dziennego i metryk OpenTelemetry...")
 service = TelemetryService(project_id=PROJECT_ID, location=LOCATION, engine_id=ENGINE_ID)
-if service.engine_id != ENGINE_ID:
-    print(f"  ✔ Dopasowano identyfikator silnika: '{ENGINE_ID}' -> '{service.engine_id}'")
+if service.engine_id:
+    if service.engine_id != ENGINE_ID:
+        print(f"  ✔ Dopasowano identyfikator silnika: '{ENGINE_ID}' -> '{service.engine_id}'")
     ENGINE_ID = service.engine_id
+else:
+    print("Błąd: Nie znaleziono silnika Gemini Enterprise w projekcie. Podaj identyfikator silnika flagą --engine <ENGINE_ID>.")
+    sys.exit(1)
 users_summary = service.get_user_summary()
 users_daily = service.get_user_daily_breakdown()
 adoption = service.get_daily_adoption(days=14)

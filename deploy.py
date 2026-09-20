@@ -38,12 +38,21 @@ def get_default_project():
         return proj
     try:
         res = subprocess.run(["gcloud", "config", "get-value", "project"], stdout=subprocess.PIPE, text=True, check=True)
-        return res.stdout.strip()
+        val = res.stdout.strip()
+        if val:
+            return val
     except Exception:
-        return "dprzek-prod"
+        pass
+    try:
+        _, creds_proj = google.auth.default()
+        if creds_proj:
+            return creds_proj
+    except Exception:
+        pass
+    return None
 
 def resolve_engine(project_id, location, engine_hint, token):
-    """Dopasowuje przyjazną nazwę aplikacji (np. test-test-test) do pełnego ID silnika."""
+    """Dopasowuje przyjazną nazwę aplikacji do pełnego ID silnika lub wybiera pierwszy dostępny."""
     api_host = f"{location}-discoveryengine.googleapis.com" if location != "global" else "discoveryengine.googleapis.com"
     url = f"https://{api_host}/v1alpha/projects/{project_id}/locations/{location}/collections/default_collection/engines"
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}", "X-Goog-User-Project": project_id})
@@ -51,13 +60,14 @@ def resolve_engine(project_id, location, engine_hint, token):
         with urllib.request.urlopen(req) as resp:
             data = json.loads(resp.read().decode())
             engines = data.get("engines", [])
+            if not engine_hint and engines:
+                return engines[0].get("name", "").split("/")[-1]
             for eng in engines:
                 e_id = eng.get("name", "").split("/")[-1]
                 d_name = eng.get("displayName", "")
                 if engine_hint in [e_id, d_name] or e_id.startswith(f"{engine_hint}_"):
                     return e_id
             if engines:
-                # Jeśli nie znaleziono dopasowania, ale hint jest podany, zwróć hint
                 return engine_hint or engines[0].get("name", "").split("/")[-1]
     except Exception as e:
         print(f"    (Uwaga przy wyszukiwaniu silników: {e})")
@@ -208,12 +218,17 @@ def main():
     args = parser.parse_args()
 
     project_id = args.project or os.environ.get("GOOGLE_CLOUD_PROJECT") or get_default_project()
+    if not project_id:
+        print("Błąd: Nie określono identyfikatora projektu GCP. Użyj opcji --project <PROJECT_ID> lub ustaw zmienną GOOGLE_CLOUD_PROJECT.")
+        sys.exit(1)
     location = args.location or os.environ.get("GOOGLE_CLOUD_LOCATION") or "eu"
-    engine_hint = args.engine_flag or args.engine or os.environ.get("GEMINI_ENGINE_ID", "test-test-test")
-    dataset_id = args.dataset
+    engine_hint = args.engine_flag or args.engine or os.environ.get("GEMINI_ENGINE_ID")
 
     token = get_auth_token()
     engine_id = resolve_engine(project_id, location, engine_hint, token)
+    if not engine_id:
+        print("Błąd: Nie znaleziono aktywnego silnika Gemini Enterprise w projekcie. Podaj nazwę silnika jako argument lub --engine <ENGINE_ID>.")
+        sys.exit(1)
 
     print("======================================================================")
     print("Rozpoczęcie automatycznego wdrożenia potoku telemetrii Gemini Enterprise")
