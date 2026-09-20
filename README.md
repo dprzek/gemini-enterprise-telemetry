@@ -45,17 +45,13 @@ Agent telemetrii (`Gemini Enterprise Telemetry & Adoption Agent`) korzysta z dyn
 
 ### 🎨 Moduły i Funkcje (Deep Research, Obrazy, Agenty)
 - *"Ile badań Deep Research przeprowadzono w organizacji w tym miesiącu i kto je uruchamiał?"*
-- *"Ile grafik wygenerowano za pomocą modeli Imagen w ostatnich 7 dniach?"*
+- *"Ile grafik wygenerowano za pomocą modeli graficznych w ostatnich 7 dniach?"*
 - *"Pokaż listę użytkowników, którzy stworzyli własne agenty w Agent Designerze."*
 
 ### 📈 Adopcja i Trendy w Organizacji
 - *"Pokaż ranking 5 najbardziej aktywnych użytkowników platformy pod względem zapytań i tokenów."*
 - *"Jak kształtuje się wskaźnik DAU (Daily Active Users) w ciągu ostatnich 30 dni?"*
 - *"Jak wygląda łączna dynamika zapytań i wolumenu tokenów w porównaniu do ubiegłego tygodnia?"*
-
-### ⏱️ Limity Kwotowe i Stabilność Platformy
-- *"Jaki jest bieżący stan limitów kwotowych (quotas) i czy zbliżamy się do limitów organizacji?"*
-- *"Czy w ostatnich 24 godzinach odnotowano błędy zapytań lub anomalie czasów odpowiedzi (TTFT)?"*
 
 ---
 
@@ -65,7 +61,7 @@ Agent telemetrii (`Gemini Enterprise Telemetry & Adoption Agent`) korzysta z dyn
 | :--- | :--- | :--- |
 | **Zapytania i Czat** | Wolumen promptów, odpowiedzi, głębokość konwersacji (tury/sesję) | BigQuery + Cloud Monitoring |
 | **Deep Research** | Unikalne sesje wieloetapowego badania rynku/wiedzy | BigQuery (`agents/deep_research`) |
-| **Generowanie Obrazów** | Liczba wygenerowanych grafik Imagen | BigQuery (`is_image_generation`) |
+| **Generowanie Obrazów** | Liczba wygenerowanych grafik (modele graficzne) | BigQuery (`is_image_generation`) |
 | **Tworzenie Agentów** | Liczba utworzonych i edytowanych agentów customowych | Cloud Audit Logs (`CreateAgent`) |
 | **Konsumpcja Tokenów** | Tokeny wejściowe (prompt), wyjściowe i buforowane (cache) | BigQuery (`gen_ai_client_inference`) |
 | **Adopcja UX** | Wskaźniki DAU / WAU / MAU, retencja użytkowników | BigQuery (`v_daily_adoption`) |
@@ -98,7 +94,7 @@ Agent telemetrii (`Gemini Enterprise Telemetry & Adoption Agent`) korzysta z dyn
 - **`v_user_daily_utilization`** — Dzienny profil utylizacji per użytkownik (zapytania, obrazy, badania, agenty, błędy, tokeny wejścia/wyjścia/cache).
 - **`v_daily_adoption`** — Globalne trendy organizacji: DAU, łączna liczba akcji, zapytań, tokenów i unikalnych użytkowników.
 - **`v_user_summary`** — Zagregowane statystyki całokształtu aktywności per użytkownik (do rankingów i audytu).
-- **`v_feature_usage`** — Wykorzystanie poszczególnych modułów (Czat, Deep Research, Imagen, Agent Designer).
+- **`v_feature_usage`** — Wykorzystanie poszczególnych modułów (Czat, Deep Research, Modele graficzne, Agent Designer).
 - **`v_observability_traces`** — Rozproszone ślady OpenTelemetry, korelacja spanów i czasy odpowiedzi.
 - **`v_token_telemetry`** — Szczegółowe metryki zużycia tokenów modeli językowych.
 
@@ -139,7 +135,7 @@ gemini-enterprise-telemetry/
 │   └── gemini_enterprise_telemetry_dashboard.json # Definicja dashboardu Cloud Monitoring
 ├── terraform/                  # Opcjonalne wdrożenie Infrastructure-as-Code
 └── tests/
-    └── test_suite.py           # Zestaw 15 zautomatyzowanych testów E2E
+    └── test_suite.py           # Zestaw testów jednostkowych i integracyjnych
 ```
 
 ---
