@@ -16,9 +16,6 @@ git clone https://github.com/dprzek/gemini-enterprise-telemetry.git
 cd gemini-enterprise-telemetry
 
 # 2. Uruchom automatyczne wdrożenie ze wskazaniem identyfikatora silnika (Engine ID):
-./deploy.sh <ID_SILNIKA>
-
-# Pełne wywołanie z ID silnika, projektem i lokalizacją:
 ./deploy.sh ge-dprzek_1789915910154 --project ge-test-dprzek --location eu
 
 # Wymuszenie ponownego wdrożenia Agenta (np. przy aktualizacji kodu):
