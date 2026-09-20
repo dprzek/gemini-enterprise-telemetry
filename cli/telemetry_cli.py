@@ -73,10 +73,10 @@ def main():
                         print("Brak wpisów dziennej aktywności dla podanych kryteriów.")
                     return
                 print(f"\n=== Raport Dziennej Utylizacji Użytkownika ({len(results)} wpisów dziennych) ===")
-                print(f"{'Data':<12} | {'Identyfikator Użytkownika':<28} | {'Zdarzenia':<9} | {'Zapytania':<9} | {'Deep Rsrch':<10} | {'Agenty':<7} | {'Tokeny':<10}")
-                print("-" * 96)
+                print(f"{'Data':<12} | {'Identyfikator Użytkownika':<28} | {'Zdarzenia':<9} | {'Zapytania':<9} | {'Deep Rsrch':<10} | {'Agenty':<7} | {'Edycje':<7} | {'UI Views':<8} | {'Błędy':<5} | {'Tokeny':<9}")
+                print("-" * 128)
                 for r in results:
-                    print(f"{r['activity_date']:<12} | {r['user_id']:<28} | {r['total_events']:<9} | {r['assistant_queries']:<9} | {r['deep_research_count']:<10} | {r['agents_created']:<7} | {r['total_tokens']:<10,}")
+                    print(f"{r['activity_date']:<12} | {r['user_id']:<28} | {r['total_events']:<9} | {r['assistant_queries']:<9} | {r['deep_research_count']:<10} | {r['agents_created']:<7} | {r.get('agent_updates', 0):<7} | {r.get('ui_page_views', 0):<8} | {r.get('failed_requests', 0):<5} | {r['total_tokens']:<9,}")
         else:
             results = service.get_user_summary(start_date=args.from_date, end_date=args.to_date, user_id=args.user)
             if args.format == "json":
@@ -89,10 +89,10 @@ def main():
                         print("Brak danych utylizacji dla podanych kryteriów.")
                     return
                 print(f"\n=== Zbiorcze Podsumowanie Utylizacji Użytkowników ({len(results)} użytkowników) ===")
-                print(f"{'Identyfikator Użytkownika':<28} | {'Aktywne Dni':<11} | {'Zdarzenia':<9} | {'Zapytania':<9} | {'Deep Rsrch':<10} | {'Agenty':<7} | {'Tokeny':<10}")
-                print("-" * 96)
+                print(f"{'Identyfikator Użytkownika':<28} | {'Aktywne Dni':<11} | {'Zdarzenia':<9} | {'Zapytania':<9} | {'Deep Rsrch':<10} | {'Agenty':<7} | {'Edycje':<7} | {'UI Views':<8} | {'Błędy':<5} | {'Tokeny':<9}")
+                print("-" * 128)
                 for r in results:
-                    print(f"{r['user_id']:<28} | {r['active_days']:<11} | {r['total_events']:<9} | {r['assistant_queries']:<9} | {r['deep_research_count']:<10} | {r['agents_created']:<7} | {r['total_tokens']:<10,}")
+                    print(f"{r['user_id']:<28} | {r['active_days']:<11} | {r['total_events']:<9} | {r['assistant_queries']:<9} | {r['deep_research_count']:<10} | {r['agents_created']:<7} | {r.get('agent_updates', 0):<7} | {r.get('ui_page_views', 0):<8} | {r.get('failed_requests', 0):<5} | {r['total_tokens']:<9,}")
                 print("\nWskazówka: Dodaj flagę '--daily', aby zobaczyć aktywność każdego użytkownika dzień po dniu.")
 
     elif args.command == "adoption":

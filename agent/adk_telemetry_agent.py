@@ -69,6 +69,9 @@ def get_user_daily_utilization(user_email: str, days: int = 14) -> str:
         assistant_queries,
         deep_research_count,
         agents_created,
+        agent_updates,
+        ui_page_views,
+        failed_requests,
         input_tokens,
         output_tokens,
         cached_tokens,
@@ -107,7 +110,7 @@ def get_user_summary(user_email: str = "") -> str:
     """Zwraca zagregowane podsumowanie aktywności użytkowników w Gemini Enterprise.
 
     Jeśli podano user_email, zwraca łączne statystyki dla wskazanego użytkownika
-    (aktywne dni, łączne zapytania, sesje Deep Research, zużyte tokeny, daty pierwszej i ostatniej aktywności).
+    (aktywne dni, łączne zapytania, sesje Deep Research, utworzone i edytowane agenty, odsłony UI, błędy, zużyte tokeny, daty pierwszej i ostatniej aktywności).
     Jeśli user_email jest puste, zwraca ranking najbardziej aktywnych użytkowników platformy.
 
     Args:
@@ -132,6 +135,9 @@ def get_user_summary(user_email: str = "") -> str:
         SUM(assistant_queries) AS assistant_queries,
         SUM(deep_research_count) AS deep_research_count,
         SUM(agents_created) AS agents_created,
+        SUM(agent_updates) AS agent_updates,
+        SUM(ui_page_views) AS ui_page_views,
+        SUM(failed_requests) AS failed_requests,
         SUM(input_tokens) AS input_tokens,
         SUM(output_tokens) AS output_tokens,
         SUM(total_tokens) AS total_tokens,
@@ -156,6 +162,9 @@ def get_user_summary(user_email: str = "") -> str:
                     "assistant_queries": 0,
                     "deep_research_count": 0,
                     "agents_created": 0,
+                    "agent_updates": 0,
+                    "ui_page_views": 0,
+                    "failed_requests": 0,
                     "input_tokens": 0,
                     "output_tokens": 0,
                     "total_tokens": 0,
@@ -324,7 +333,7 @@ root_agent = Agent(
     instruction="""Jesteś dedykowanym agentem telemetrii, obserwowalności i adopcji w Gemini Enterprise ("Gemini Enterprise Telemetry & Adoption Agent").
 Twój cel to dynamiczne i precyzyjne odpowiadanie na pytania administratorów oraz użytkowników dotyczące:
 1. Aktywności konkretnych użytkowników (liczba zapytań, tokeny wejściowe i wyjściowe, podział na poszczególne dni, czas odpowiedzi).
-2. Zadań Deep Research i tworzenia agentów w organizacji.
+2. Zadań Deep Research i tworzenia autorskich agentów w organizacji.
 3. Trendów adopcji i dynamiki aktywnych użytkowników (DAU / WAU).
 4. Bieżącego stanu limitów kwotowych (quotas: RPM, TPM, headroom) w czasie rzeczywistym.
 5. Jakości usługi i opóźnień (TTFT - Time-to-First-Token, czasy generowania, błędy).
@@ -339,6 +348,15 @@ ZASADY DZIAŁANIA:
   -> wywołaj `get_realtime_quotas()`.
 - Gdy użytkownik pyta o opóźnienia, czasy reakcji lub błędy:
   -> wywołaj `get_observability_traces()`.
+
+INTERPRETACJA I PREZENTACJA METRYK:
+- `total_events` (Całkowite Zdarzenia): ZAWSZE wyjaśniaj strukturę całkowitych zdarzeń użytkownika. Jest to suma wszystkich interakcji z platformą: zapytań asystenta, ukończonych zadań Deep Research, utworzonych i edytowanych autorskich agentów oraz telemetrycznych odsłon zakładek i nawigacji w portalu UI.
+- `deep_research_count` (Liczba Deep Research): Reprezentuje unikalne, udane sesje badawcze. Jeśli zapytanie natrafiło na błąd sieciowy platformy i wymagało ponowienia ("Retry"), jest to wciąż 1 sesja badawcza, a nieudane wywołanie widoczne jest w polu `failed_requests`.
+- `agents_created` (Utworzone Agenty): Zlicza wyłącznie niestandardowe (customowe) agenty utworzone przez danego użytkownika w Agent Designerze (wykluczając agentów systemowych wbudowanych w silnik, np. domyślnego 'deep_research').
+- `agent_updates`: Zlicza edycje i aktualizacje konfiguracji agentów.
+- `ui_page_views`: Odsłony stron i nawigacja w aplikacji (np. przeglądanie galerii agentów, dashboardu czy widoku badań).
+- `failed_requests`: Błędy techniczne platformy (np. błąd 500 / kod 13 wymagający wciśnięcia przycisku "Retry").
+- `total_tokens`: Tokeny modeli LLM. Zwróć uwagę, że w Gemini Enterprise badania Deep Research taryfikowane są jako odrębne operacje kwotowe (Cloud Quotas), dlatego tokeny naliczają się przy bezpośrednich czatach z modelami asystenta, a przy samym Deep Research mogą wynosić 0.
 - Odpowiedzi formułuj po polsku (lub w języku zadanego pytania), w sposób przejrzysty, profesjonalny i analityczny, stosując tabele Markdown oraz podsumowania punktowe z kluczowymi wnioskami.
 """,
     tools=[
