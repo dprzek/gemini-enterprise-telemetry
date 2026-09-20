@@ -174,8 +174,8 @@ raw_tokens AS (
       inf.timestamp,
       COALESCE(
         NULLIF(NULLIF(TRIM(act.jsonPayload.useriamprincipal), "<elided>"), ""),
-        (SELECT email FROM primary_admin),
-        "system"
+        NULLIF(act.jsonPayload.request.userevent.userpseudoid, ""),
+        CASE WHEN act.timestamp IS NOT NULL THEN (SELECT email FROM primary_admin) ELSE "unassigned" END
       ) AS user_id,
       CAST(COALESCE(inf.jsonPayload.gen_ai_usage_input_tokens, 0) AS INT64) AS input_tokens,
       CAST(COALESCE(inf.jsonPayload.gen_ai_usage_output_tokens, 0) AS INT64) AS output_tokens,
@@ -252,7 +252,7 @@ FULL OUTER JOIN aggregated_audit a
 FULL OUTER JOIN aggregated_tokens t
   ON COALESCE(u.user_id, a.user_id) = t.user_id 
   AND COALESCE(u.activity_date, a.activity_date) = t.activity_date
-WHERE COALESCE(u.user_id, a.user_id, t.user_id) NOT IN ("unknown", "system");
+WHERE COALESCE(u.user_id, a.user_id, t.user_id) NOT IN ("unknown", "system", "unassigned");
 
 -- 2. Widok wstecznej kompatybilności (alias dla v_user_daily_utilization)
 CREATE OR REPLACE VIEW `{project_id}.{dataset_id}.v_user_utilization` AS
