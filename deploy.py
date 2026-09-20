@@ -222,6 +222,7 @@ def main():
         print("Błąd: Nie określono identyfikatora projektu GCP. Użyj opcji --project <PROJECT_ID> lub ustaw zmienną GOOGLE_CLOUD_PROJECT.")
         sys.exit(1)
     location = args.location or os.environ.get("GOOGLE_CLOUD_LOCATION") or "eu"
+    dataset_id = args.dataset
     engine_hint = args.engine_flag or args.engine or os.environ.get("GEMINI_ENGINE_ID")
 
     token = get_auth_token()
