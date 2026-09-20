@@ -23,8 +23,8 @@ raw_user_events AS (
       COALESCE(
         NULLIF(NULLIF(TRIM(jsonPayload.useriamprincipal), '<elided>'), ''),
         (SELECT email FROM primary_user),
-        jsonPayload.request.userevent.userpseudoid,
-        'admin@dprzek.altostrat.com'
+        NULLIF(jsonPayload.request.userevent.userpseudoid, ''),
+        'workspace_user'
       ) AS user_id,
       COALESCE(jsonPayload.logmetadata.methodname, '') AS method_name,
       COALESCE(jsonPayload.request.userevent.agentspaceinfo.agentspacepagetype, '') AS page_type,
@@ -68,7 +68,7 @@ raw_user_events AS (
         NULLIF(NULLIF(TRIM(user_iam_principal), '<elided>'), ''),
         (SELECT email FROM primary_user),
         NULLIF(user_pseudo_id, ''),
-        'admin@dprzek.altostrat.com'
+        'workspace_user'
       ) AS user_id,
       method_name,
       page_type,
@@ -144,7 +144,7 @@ raw_tokens AS (
       COALESCE(
         NULLIF(NULLIF(TRIM(act.jsonPayload.useriamprincipal), '<elided>'), ''),
         (SELECT email FROM primary_user),
-        'admin@dprzek.altostrat.com'
+        'workspace_user'
       ) AS user_id,
       CAST(COALESCE(inf.jsonPayload.gen_ai_usage_input_tokens, 0) AS INT64) AS input_tokens,
       CAST(COALESCE(inf.jsonPayload.gen_ai_usage_output_tokens, 0) AS INT64) AS output_tokens,
@@ -164,7 +164,7 @@ raw_tokens AS (
       COALESCE(
         NULLIF(NULLIF(TRIM(user_id), 'user'), ''),
         (SELECT email FROM primary_user),
-        'admin@dprzek.altostrat.com'
+        'workspace_user'
       ) AS user_id,
       CAST(input_tokens AS INT64) AS input_tokens,
       CAST(output_tokens AS INT64) AS output_tokens,

@@ -67,7 +67,10 @@ def main():
                 print(json.dumps(results, indent=2))
             else:
                 if not results:
-                    print("Brak wpisów dziennej aktywności dla podanych kryteriów.")
+                    if args.user:
+                        print(f"\nUżytkownik '{args.user}' nie posiada żadnych wpisów aktywności w wybranym okresie (zerowa utylizacja).")
+                    else:
+                        print("Brak wpisów dziennej aktywności dla podanych kryteriów.")
                     return
                 print(f"\n=== Raport Dziennej Utylizacji Użytkownika ({len(results)} wpisów dziennych) ===")
                 print(f"{'Data':<12} | {'Identyfikator Użytkownika':<28} | {'Zdarzenia':<9} | {'Zapytania':<9} | {'Deep Rsrch':<10} | {'Agenty':<7} | {'Tokeny':<10}")
@@ -80,7 +83,10 @@ def main():
                 print(json.dumps(results, indent=2))
             else:
                 if not results:
-                    print("Brak danych utylizacji dla podanych kryteriów.")
+                    if args.user:
+                        print(f"\nUżytkownik '{args.user}' posiada zerową utylizację (0 zapytań, 0 sesji Deep Research, 0 utworzonych agentów, 0 tokenów).")
+                    else:
+                        print("Brak danych utylizacji dla podanych kryteriów.")
                     return
                 print(f"\n=== Zbiorcze Podsumowanie Utylizacji Użytkowników ({len(results)} użytkowników) ===")
                 print(f"{'Identyfikator Użytkownika':<28} | {'Aktywne Dni':<11} | {'Zdarzenia':<9} | {'Zapytania':<9} | {'Deep Rsrch':<10} | {'Agenty':<7} | {'Tokeny':<10}")

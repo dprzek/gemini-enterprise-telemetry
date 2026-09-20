@@ -85,9 +85,12 @@ def get_user_daily_utilization(user_email: str, days: int = 14) -> str:
         rows = [dict(row) for row in job.result()]
         if not rows:
             return json.dumps({
-                "status": "not_found",
-                "message": f"Brak odnotowanej aktywności dla użytkownika '{user_email}' w okresie ostatnich {days} dni.",
-                "days_analyzed": days
+                "status": "zero_utilization",
+                "user_email": user_email,
+                "days_analyzed": days,
+                "daily_records_count": 0,
+                "daily_records": [],
+                "message": f"Brak odnotowanej aktywności dla użytkownika '{user_email}' w okresie ostatnich {days} dni (zerowa utylizacja)."
             }, ensure_ascii=False)
         return json.dumps({
             "status": "success",
@@ -144,9 +147,25 @@ def get_user_summary(user_email: str = "") -> str:
         job = client.query(query)
         rows = [dict(row) for row in job.result()]
         if not rows:
+            if user_email:
+                return json.dumps({
+                    "status": "zero_utilization",
+                    "user_email": user_email,
+                    "active_days": 0,
+                    "total_events": 0,
+                    "assistant_queries": 0,
+                    "deep_research_count": 0,
+                    "agents_created": 0,
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "total_tokens": 0,
+                    "first_active": None,
+                    "last_active": None,
+                    "message": f"Użytkownik '{user_email}' nie posiada zarejestrowanej aktywności (zerowa utylizacja Gemini Enterprise)."
+                }, ensure_ascii=False)
             return json.dumps({
                 "status": "not_found",
-                "message": f"Nie znaleziono danych dla filtru '{user_email}'." if user_email else "Brak danych o użytkownikach."
+                "message": "Brak zarejestrowanych użytkowników w zbiorze telemetrii."
             }, ensure_ascii=False)
         return json.dumps({
             "status": "success",

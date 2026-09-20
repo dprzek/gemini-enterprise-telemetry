@@ -114,6 +114,11 @@ def init_streaming_tables(client, project_id, dataset_id):
                         bigquery.SchemaField("agentspacepagetype", "STRING"),
                     ]),
                 ]),
+                bigquery.SchemaField("agentsspec", "RECORD", fields=[
+                    bigquery.SchemaField("agentspecs", "RECORD", mode="REPEATED", fields=[
+                        bigquery.SchemaField("agentid", "STRING"),
+                    ]),
+                ]),
             ]),
         ]),
     ]
