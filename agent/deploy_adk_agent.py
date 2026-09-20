@@ -52,6 +52,16 @@ def get_access_token(credentials):
 
 def get_project_number(project_id, credentials):
     try:
+        res = subprocess.run(
+            ["gcloud", "projects", "describe", project_id, "--format=value(projectNumber)"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
+        )
+        pnum = res.stdout.strip()
+        if pnum:
+            return pnum
+    except Exception:
+        pass
+    try:
         url = f"https://cloudresourcemanager.googleapis.com/v1/projects/{project_id}"
         req = urllib.request.Request(
             url,
@@ -201,50 +211,53 @@ def register_adk_agent_in_gemini(project_id, project_number, location, engine_id
 
 
 def ensure_reasoning_engine_permissions(project_id, project_number, dataset_id, credentials):
-    """Automatycznie weryfikuje i nadaje uprawnienia IAM dla konta usługi Vertex Reasoning Engine."""
-    sa_email = f"service-{project_number}@gcp-sa-aiplatform-re.iam.gserviceaccount.com"
-    print(f"[*] Weryfikacja i konfiguracja uprawnień IAM dla konta usługi Reasoning Engine:")
-    print(f"    Konto usługi: {sa_email}")
-
-    # 1. Role na poziomie projektu (BigQuery Job User, Monitoring Viewer, Cloud Trace User)
+    """Automatycznie weryfikuje i nadaje uprawnienia IAM dla kont usługi Vertex Reasoning Engine."""
+    sa_emails = [
+        f"service-{project_number}@gcp-sa-aiplatform-re.iam.gserviceaccount.com",
+        f"service-{project_number}@gcp-sa-aiplatform.iam.gserviceaccount.com",
+    ]
     roles = [
         "roles/bigquery.jobUser",
         "roles/monitoring.viewer",
         "roles/cloudtrace.user"
     ]
-    for role in roles:
-        try:
-            cmd = [
-                "gcloud", "projects", "add-iam-policy-binding", project_id,
-                f"--member=serviceAccount:{sa_email}",
-                f"--role={role}",
-                "--condition=None"
-            ]
-            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-            print(f"    ✔ Przypisano rolę {role}")
-        except Exception as e:
-            print(f"    [INFO] Status roli {role}: weryfikacja zakończona ({e})")
 
-    # 2. Dostęp READER na zbiorze danych BigQuery
-    try:
-        from google.cloud import bigquery
-        from google.cloud.bigquery import AccessEntry
-        bq_client = bigquery.Client(project=project_id, credentials=credentials)
-        dataset = bq_client.get_dataset(dataset_id)
-        current_entries = list(dataset.access_entries)
-        already_has_access = any(
-            entry.entity_id == sa_email and entry.role in ("READER", "WRITER", "OWNER")
-            for entry in current_entries
-        )
-        if not already_has_access:
-            current_entries.append(AccessEntry(role="READER", entity_type="userByEmail", entity_id=sa_email))
-            dataset.access_entries = current_entries
-            bq_client.update_dataset(dataset, ["access_entries"])
-            print(f"    ✔ Nadano uprawnienie READER na zbiorze BigQuery '{dataset_id}' dla {sa_email}")
-        else:
-            print(f"    ✔ Konto {sa_email} posiada już uprawnienia READER do zbioru BigQuery '{dataset_id}'")
-    except Exception as bqe:
-        print(f"    [INFO] Weryfikacja uprawnień zbioru BigQuery: {bqe}")
+    for sa_email in sa_emails:
+        print(f"[*] Weryfikacja i konfiguracja uprawnień IAM dla konta usługi Reasoning Engine: {sa_email}")
+        # 1. Role na poziomie projektu (BigQuery Job User, Monitoring Viewer, Cloud Trace User)
+        for role in roles:
+            try:
+                cmd = [
+                    "gcloud", "projects", "add-iam-policy-binding", project_id,
+                    f"--member=serviceAccount:{sa_email}",
+                    f"--role={role}",
+                    "--condition=None"
+                ]
+                subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+                print(f"    ✔ Przypisano rolę {role} dla {sa_email}")
+            except Exception as e:
+                print(f"    [INFO] Status roli {role} dla {sa_email}: weryfikacja zakończona ({e})")
+
+        # 2. Dostęp READER na zbiorze danych BigQuery
+        try:
+            from google.cloud import bigquery
+            from google.cloud.bigquery import AccessEntry
+            bq_client = bigquery.Client(project=project_id, credentials=credentials)
+            dataset = bq_client.get_dataset(dataset_id)
+            current_entries = list(dataset.access_entries)
+            already_has_access = any(
+                entry.entity_id == sa_email and entry.role in ("READER", "WRITER", "OWNER")
+                for entry in current_entries
+            )
+            if not already_has_access:
+                current_entries.append(AccessEntry(role="READER", entity_type="userByEmail", entity_id=sa_email))
+                dataset.access_entries = current_entries
+                bq_client.update_dataset(dataset, ["access_entries"])
+                print(f"    ✔ Nadano uprawnienie READER na zbiorze BigQuery '{dataset_id}' dla {sa_email}")
+            else:
+                print(f"    ✔ Konto {sa_email} posiada już uprawnienia READER do zbioru BigQuery '{dataset_id}'")
+        except Exception as bqe:
+            print(f"    [INFO] Weryfikacja uprawnień zbioru BigQuery dla {sa_email}: {bqe}")
 
 
 def main():

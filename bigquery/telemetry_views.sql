@@ -1,16 +1,10 @@
--- ==============================================================================
--- Widoki Analityczne Telemetrii i Obserwowalności Gemini Enterprise
--- Automatycznie unifikuje tabele zlewu Cloud Logging w czasie rzeczywistym i logi historyczne.
--- Obejmuje ślady i spany OpenTelemetry, zdarzenia użytkowników, opóźnienia i tokeny.
--- ==============================================================================
-
 -- 1. Zunifikowany widok dziennej aktywności użytkowników (rozbicie dzień po dniu)
 CREATE OR REPLACE VIEW `{project_id}.{dataset_id}.v_user_daily_utilization` AS
 WITH primary_admin AS (
-  SELECT protopayload_auditlog.authenticationInfo.principalEmail AS email
+  SELECT JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.authenticationInfo.principalEmail") AS email
   FROM `{project_id}.{dataset_id}.cloudaudit_googleapis_com_activity`
-  WHERE protopayload_auditlog.authenticationInfo.principalEmail IS NOT NULL 
-    AND NOT protopayload_auditlog.authenticationInfo.principalEmail LIKE "%gserviceaccount.com"
+  WHERE JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.authenticationInfo.principalEmail") IS NOT NULL 
+    AND NOT JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.authenticationInfo.principalEmail") LIKE "%gserviceaccount.com"
   ORDER BY timestamp ASC
   LIMIT 1
 ),
@@ -21,80 +15,63 @@ raw_user_events AS (
       DATE(timestamp) AS activity_date,
       timestamp,
       COALESCE(
-        NULLIF(NULLIF(TRIM(jsonPayload.useriamprincipal), "<elided>"), ""),
-        NULLIF(jsonPayload.request.userevent.userpseudoid, ""),
+        NULLIF(NULLIF(TRIM(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.useriamprincipal")), "<elided>"), ""),
+        NULLIF(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.userpseudoid"), ""),
         "system"
       ) AS user_id,
-      COALESCE(jsonPayload.logmetadata.methodname, "") AS method_name,
-      COALESCE(jsonPayload.request.userevent.agentspaceinfo.agentspacepagetype, "") AS page_type,
-      COALESCE(jsonPayload.request.userevent.eventtype, "") AS event_type,
-      COALESCE(jsonPayload.request.userevent.engine, "") AS engine,
-      REGEXP_EXTRACT(COALESCE(jsonPayload.response.answer.name, ""), r"/sessions/([^/]+)") AS session_id,
+      COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.methodname"), "") AS method_name,
+      COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.agentspaceinfo.agentspacepagetype"), "") AS page_type,
+      COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.eventtype"), "") AS event_type,
+      COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.engine"), "") AS engine,
+      REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.answer.name"), ""), r"/sessions/([^/]+)") AS session_id,
       CASE 
-        WHEN jsonPayload.logmetadata.methodname IN ("StreamAssist", "Assist")
+        WHEN COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.methodname"), "") IN ("StreamAssist", "Assist")
          AND (
-           COALESCE(jsonPayload.response.agentinfo.agent, "") LIKE "%/agents/deep_research"
-           OR EXISTS (
-             SELECT 1 
-             FROM UNNEST(COALESCE(jsonPayload.request.agentsspec.agentspecs, [])) s 
-             WHERE s.agentid = "deep_research"
-           )
+           COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.agentinfo.agent"), "") LIKE "%/agents/deep_research"
+           OR TO_JSON_STRING(jsonPayload) LIKE "%deep_research%"
          )
-         AND (jsonPayload.status.code IS NULL OR jsonPayload.status.code = 0)
-         AND jsonPayload.response IS NOT NULL THEN 1 
+         AND (SAFE_CAST(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.status.code") AS INT64) IS NULL OR SAFE_CAST(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.status.code") AS INT64) = 0)
+         AND JSON_QUERY(TO_JSON_STRING(jsonPayload), "$.response") IS NOT NULL THEN 1 
         ELSE 0 
       END AS is_deep_research,
       CASE
-        WHEN jsonPayload.logmetadata.methodname IN ("StreamAssist", "Assist")
+        WHEN COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.methodname"), "") IN ("StreamAssist", "Assist")
          AND (
-           COALESCE(jsonPayload.request.userevent.agentspaceinfo.agentspacepagetype, "") = "image-generation"
-           OR EXISTS (
-             SELECT 1 
-             FROM UNNEST(COALESCE(jsonPayload.request.query.parts, [])) p 
-             WHERE REGEXP_CONTAINS(LOWER(p.text), r"(wygeneruj|stwórz|utwórz|zrób|generuj|generate|create|draw|narysuj|namaluj|paint)\s+(obraz|obrazek|grafik|zdjęci|image|picture|photo|illustration)")
-                OR REGEXP_CONTAINS(LOWER(p.text), r"^(obrazek|obraz|image|zdjęcie)\s+")
-           )
+           COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.agentspaceinfo.agentspacepagetype"), "") = "image-generation"
+           OR REGEXP_CONTAINS(LOWER(TO_JSON_STRING(jsonPayload)), r"(wygeneruj|stwórz|utwórz|zrób|generuj|generate|create|draw|narysuj|namaluj|paint)\s+(obraz|obrazek|grafik|zdjęci|image|picture|photo|illustration)")
+           OR REGEXP_CONTAINS(LOWER(TO_JSON_STRING(jsonPayload)), r"\"(obrazek|obraz|image|zdjęcie)\s+")
+           OR LOWER(TO_JSON_STRING(jsonPayload)) LIKE "%image-generation%"
          )
-         AND (jsonPayload.status.code IS NULL OR jsonPayload.status.code = 0) THEN 1
+         AND (SAFE_CAST(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.status.code") AS INT64) IS NULL OR SAFE_CAST(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.status.code") AS INT64) = 0) THEN 1
         ELSE 0
       END AS is_image_generation,
       CASE 
-        WHEN jsonPayload.logmetadata.methodname IN ("StreamAssist", "Assist") 
+        WHEN COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.methodname"), "") IN ("StreamAssist", "Assist") 
          AND NOT (
-           COALESCE(jsonPayload.response.agentinfo.agent, "") LIKE "%/agents/deep_research"
-           OR EXISTS (
-             SELECT 1 
-             FROM UNNEST(COALESCE(jsonPayload.request.agentsspec.agentspecs, [])) s 
-             WHERE s.agentid = "deep_research"
-           )
+           COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.agentinfo.agent"), "") LIKE "%/agents/deep_research"
+           OR TO_JSON_STRING(jsonPayload) LIKE "%deep_research%"
          )
          AND NOT (
-           COALESCE(jsonPayload.request.userevent.agentspaceinfo.agentspacepagetype, "") = "image-generation"
-           OR EXISTS (
-             SELECT 1 
-             FROM UNNEST(COALESCE(jsonPayload.request.query.parts, [])) p 
-             WHERE REGEXP_CONTAINS(LOWER(p.text), r"(wygeneruj|stwórz|utwórz|zrób|generuj|generate|create|draw|narysuj|namaluj|paint)\s+(obraz|obrazek|grafik|zdjęci|image|picture|photo|illustration)")
-                OR REGEXP_CONTAINS(LOWER(p.text), r"^(obrazek|obraz|image|zdjęcie)\s+")
-           )
+           COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.agentspaceinfo.agentspacepagetype"), "") = "image-generation"
+           OR REGEXP_CONTAINS(LOWER(TO_JSON_STRING(jsonPayload)), r"(wygeneruj|stwórz|utwórz|zrób|generuj|generate|create|draw|narysuj|namaluj|paint)\s+(obraz|obrazek|grafik|zdjęci|image|picture|photo|illustration)")
+           OR REGEXP_CONTAINS(LOWER(TO_JSON_STRING(jsonPayload)), r"\"(obrazek|obraz|image|zdjęcie)\s+")
+           OR LOWER(TO_JSON_STRING(jsonPayload)) LIKE "%image-generation%"
          )
-         AND (jsonPayload.status.code IS NULL OR jsonPayload.status.code = 0) THEN 1 
+         AND (SAFE_CAST(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.status.code") AS INT64) IS NULL OR SAFE_CAST(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.status.code") AS INT64) = 0) THEN 1 
         ELSE 0 
       END AS is_assistant_query,
       CASE
-        WHEN jsonPayload.logmetadata.methodname = "CreateAgent"
+        WHEN COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.methodname"), "") = "CreateAgent"
          AND NOT (
-           COALESCE(jsonPayload.response.name, "") LIKE "%/agents/deep_research"
-           OR COALESCE(jsonPayload.request.agent.name, "") LIKE "%/agents/deep_research"
-           OR EXISTS (
-             SELECT 1 
-             FROM UNNEST(COALESCE(jsonPayload.request.agentsspec.agentspecs, [])) s 
-             WHERE s.agentid = "deep_research"
-           )
+           COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.name"), "") LIKE "%/agents/deep_research"
+           OR COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.agent.name"), "") LIKE "%/agents/deep_research"
+           OR TO_JSON_STRING(jsonPayload) LIKE "%deep_research%"
          ) THEN 1
         ELSE 0
       END AS is_custom_agent_created,
       CASE
-        WHEN jsonPayload.status.code IS NOT NULL AND jsonPayload.status.code != 0 THEN 1
+        WHEN SAFE_CAST(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.status.code") AS INT64) IS NOT NULL 
+         AND SAFE_CAST(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.status.code") AS INT64) != 0 THEN 1
         ELSE 0
       END AS is_error_event,
       insertId,
@@ -185,20 +162,20 @@ raw_audit AS (
     timestamp,
     COALESCE(
       NULLIF(principal_email, ""),
-      NULLIF(protopayload_auditlog.authenticationInfo.principalEmail, ""),
+      NULLIF(JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.authenticationInfo.principalEmail"), ""),
       "unknown"
     ) AS user_id,
-    COALESCE(method_name, protopayload_auditlog.methodName, "") AS method_name,
-    COALESCE(resource_name, protopayload_auditlog.resourceName, "") AS resource_name,
+    COALESCE(method_name, JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.methodName"), "") AS method_name,
+    COALESCE(resource_name, JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.resourceName"), "") AS resource_name,
     CASE 
-      WHEN COALESCE(method_name, protopayload_auditlog.methodName, "") LIKE "%CreateAgent%"
-       AND NOT COALESCE(resource_name, protopayload_auditlog.resourceName, "") LIKE "%/agents/deep_research"
-       AND COALESCE(protopayload_auditlog.status.code, 0) = 0 THEN 1 
+      WHEN COALESCE(method_name, JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.methodName"), "") LIKE "%CreateAgent%"
+       AND NOT COALESCE(resource_name, JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.resourceName"), "") LIKE "%/agents/deep_research"
+       AND COALESCE(SAFE_CAST(JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.status.code") AS INT64), 0) = 0 THEN 1 
       ELSE 0 
     END AS is_custom_agent_created
   FROM `{project_id}.{dataset_id}.cloudaudit_googleapis_com_activity`
   QUALIFY ROW_NUMBER() OVER(
-    PARTITION BY COALESCE(NULLIF(insertId, ""), NULLIF(insert_id, ""), CONCAT(CAST(timestamp AS STRING), "_", COALESCE(method_name, protopayload_auditlog.methodName, "")))
+    PARTITION BY COALESCE(NULLIF(insert_id, ""), NULLIF(insertId, ""), CONCAT(CAST(timestamp AS STRING), "_", COALESCE(method_name, JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.methodName"), "")))
     ORDER BY timestamp
   ) = 1
 ),
@@ -220,13 +197,13 @@ raw_tokens AS (
       DATE(inf.timestamp) AS activity_date,
       inf.timestamp,
       COALESCE(
-        NULLIF(NULLIF(TRIM(act.jsonPayload.useriamprincipal), "<elided>"), ""),
-        NULLIF(act.jsonPayload.request.userevent.userpseudoid, ""),
+        NULLIF(NULLIF(TRIM(JSON_VALUE(TO_JSON_STRING(act.jsonPayload), "$.useriamprincipal")), "<elided>"), ""),
+        NULLIF(JSON_VALUE(TO_JSON_STRING(act.jsonPayload), "$.request.userevent.userpseudoid"), ""),
         CASE WHEN act.timestamp IS NOT NULL THEN (SELECT email FROM primary_admin) ELSE "unassigned" END
       ) AS user_id,
-      CAST(COALESCE(inf.jsonPayload.gen_ai_usage_input_tokens, 0) AS INT64) AS input_tokens,
-      CAST(COALESCE(inf.jsonPayload.gen_ai_usage_output_tokens, 0) AS INT64) AS output_tokens,
-      CAST(COALESCE(inf.jsonPayload.gen_ai_usage_reasoning_output_tokens, 0) AS INT64) AS cached_tokens,
+      CAST(COALESCE(SAFE_CAST(JSON_VALUE(TO_JSON_STRING(inf.jsonPayload), "$.gen_ai_usage_input_tokens") AS FLOAT64), 0) AS INT64) AS input_tokens,
+      CAST(COALESCE(SAFE_CAST(JSON_VALUE(TO_JSON_STRING(inf.jsonPayload), "$.gen_ai_usage_output_tokens") AS FLOAT64), 0) AS INT64) AS output_tokens,
+      CAST(COALESCE(SAFE_CAST(JSON_VALUE(TO_JSON_STRING(inf.jsonPayload), "$.gen_ai_usage_reasoning_output_tokens") AS FLOAT64), 0) AS INT64) AS cached_tokens,
       inf.insertId,
       1 AS priority
     FROM `{project_id}.{dataset_id}.discoveryengine_googleapis_com_gen_ai_client_inference_operation_details` inf
@@ -358,36 +335,29 @@ FROM (
   SELECT
     timestamp,
     COALESCE(
-      NULLIF(NULLIF(TRIM(jsonPayload.useriamprincipal), "<elided>"), ""),
-      NULLIF(jsonPayload.request.userevent.userpseudoid, ""),
+      NULLIF(NULLIF(TRIM(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.useriamprincipal")), "<elided>"), ""),
+      NULLIF(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.userpseudoid"), ""),
       "system"
     ) AS user_id,
     CASE
-      WHEN jsonPayload.logmetadata.methodname IN ("StreamAssist", "Assist")
+      WHEN COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.methodname"), "") IN ("StreamAssist", "Assist")
        AND (
-         COALESCE(jsonPayload.response.agentinfo.agent, "") LIKE "%/agents/deep_research"
-         OR EXISTS (
-           SELECT 1 
-           FROM UNNEST(COALESCE(jsonPayload.request.agentsspec.agentspecs, [])) s 
-           WHERE s.agentid = "deep_research"
-         )
+         COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.agentinfo.agent"), "") LIKE "%/agents/deep_research"
+         OR TO_JSON_STRING(jsonPayload) LIKE "%deep_research%"
        ) THEN "Deep Research"
-      WHEN jsonPayload.logmetadata.methodname IN ("StreamAssist", "Assist")
+      WHEN COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.methodname"), "") IN ("StreamAssist", "Assist")
        AND (
-         COALESCE(jsonPayload.request.userevent.agentspaceinfo.agentspacepagetype, "") = "image-generation"
-         OR EXISTS (
-           SELECT 1 
-           FROM UNNEST(COALESCE(jsonPayload.request.query.parts, [])) p 
-           WHERE REGEXP_CONTAINS(LOWER(p.text), r"(wygeneruj|stwórz|utwórz|zrób|generuj|generate|create|draw|narysuj|namaluj|paint)\s+(obraz|obrazek|grafik|zdjęci|image|picture|photo|illustration)")
-              OR REGEXP_CONTAINS(LOWER(p.text), r"^(obrazek|obraz|image|zdjęcie)\s+")
-         )
+         COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.agentspaceinfo.agentspacepagetype"), "") = "image-generation"
+         OR REGEXP_CONTAINS(LOWER(TO_JSON_STRING(jsonPayload)), r"(wygeneruj|stwórz|utwórz|zrób|generuj|generate|create|draw|narysuj|namaluj|paint)\s+(obraz|obrazek|grafik|zdjęci|image|picture|photo|illustration)")
+         OR REGEXP_CONTAINS(LOWER(TO_JSON_STRING(jsonPayload)), r"\"(obrazek|obraz|image|zdjęcie)\s+")
+         OR LOWER(TO_JSON_STRING(jsonPayload)) LIKE "%image-generation%"
        ) THEN "Image Generation (Modele graficzne)"
-      WHEN jsonPayload.logmetadata.methodname IN ("StreamAssist", "Assist") THEN "General Assistant"
-      WHEN jsonPayload.logmetadata.methodname = "CreateAgent" THEN "Custom Agent Creation"
-      WHEN jsonPayload.logmetadata.methodname = "UpdateAgent" THEN "Custom Agent Edit"
-      WHEN COALESCE(jsonPayload.request.userevent.agentspaceinfo.agentspacepagetype, "") != "" 
-        THEN CONCAT("UI: ", jsonPayload.request.userevent.agentspaceinfo.agentspacepagetype)
-      ELSE COALESCE(jsonPayload.logmetadata.methodname, "Other")
+      WHEN COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.methodname"), "") IN ("StreamAssist", "Assist") THEN "General Assistant"
+      WHEN COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.methodname"), "") = "CreateAgent" THEN "Custom Agent Creation"
+      WHEN COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.methodname"), "") = "UpdateAgent" THEN "Custom Agent Edit"
+      WHEN COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.agentspaceinfo.agentspacepagetype"), "") != "" 
+        THEN CONCAT("UI: ", JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.agentspaceinfo.agentspacepagetype"))
+      ELSE COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.methodname"), "Other")
     END AS feature_name
   FROM `{project_id}.{dataset_id}.discoveryengine_googleapis_com_gemini_enterprise_user_activity`
   
@@ -430,15 +400,15 @@ SELECT
   trace AS trace_id,
   spanId AS span_id,
   COALESCE(
-    NULLIF(NULLIF(TRIM(jsonPayload.useriamprincipal), "<elided>"), ""),
-    jsonPayload.request.userevent.userpseudoid,
+    NULLIF(NULLIF(TRIM(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.useriamprincipal")), "<elided>"), ""),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.userpseudoid"),
     "anonymous_user"
   ) AS user_id,
-  jsonPayload.logmetadata.methodname AS method_name,
-  jsonPayload.logmetadata.servicename AS service_name,
-  jsonPayload.response.answer.state AS answer_state,
-  jsonPayload.response.agentinfo.displayname AS agent_display_name,
-  jsonPayload.response.agentinfo.agent AS agent_resource,
+  JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.methodname") AS method_name,
+  JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.servicename") AS service_name,
+  JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.answer.state") AS answer_state,
+  JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.agentinfo.displayname") AS agent_display_name,
+  JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.agentinfo.agent") AS agent_resource,
   severity,
   insertId
 FROM `{project_id}.{dataset_id}.discoveryengine_googleapis_com_gemini_enterprise_user_activity`
@@ -453,11 +423,11 @@ SELECT
   insertId AS insert_id,
   trace AS trace_id,
   spanId AS span_id,
-  CAST(COALESCE(jsonPayload.gen_ai_usage_input_tokens, 0) AS INT64) AS input_tokens,
-  CAST(COALESCE(jsonPayload.gen_ai_usage_output_tokens, 0) AS INT64) AS output_tokens,
-  CAST(COALESCE(jsonPayload.gen_ai_usage_reasoning_output_tokens, 0) AS INT64) AS cached_tokens,
-  (CAST(COALESCE(jsonPayload.gen_ai_usage_input_tokens, 0) AS INT64) + CAST(COALESCE(jsonPayload.gen_ai_usage_output_tokens, 0) AS INT64)) AS total_tokens,
-  COALESCE(jsonPayload.gen_ai_agent_name, "") AS agent_name,
+  CAST(COALESCE(SAFE_CAST(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.gen_ai_usage_input_tokens") AS FLOAT64), 0) AS INT64) AS input_tokens,
+  CAST(COALESCE(SAFE_CAST(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.gen_ai_usage_output_tokens") AS FLOAT64), 0) AS INT64) AS output_tokens,
+  CAST(COALESCE(SAFE_CAST(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.gen_ai_usage_reasoning_output_tokens") AS FLOAT64), 0) AS INT64) AS cached_tokens,
+  (CAST(COALESCE(SAFE_CAST(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.gen_ai_usage_input_tokens") AS FLOAT64), 0) AS INT64) + CAST(COALESCE(SAFE_CAST(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.gen_ai_usage_output_tokens") AS FLOAT64), 0) AS INT64)) AS total_tokens,
+  COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.gen_ai_agent_name"), "") AS agent_name,
   severity
 FROM `{project_id}.{dataset_id}.discoveryengine_googleapis_com_gen_ai_client_inference_operation_details`
 
@@ -476,4 +446,3 @@ SELECT
   COALESCE(agent_name, "") AS agent_name,
   "DEFAULT" AS severity
 FROM `{project_id}.{dataset_id}.gen_ai_client_inference_operation_details`;
-

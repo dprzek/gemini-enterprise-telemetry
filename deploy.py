@@ -73,6 +73,25 @@ def resolve_engine(project_id, location, engine_hint, token):
         print(f"    (Uwaga przy wyszukiwaniu silników: {e})")
     return engine_hint
 
+def ensure_required_apis(project_id):
+    """Automatycznie weryfikuje i aktywuje wymagane API Google Cloud."""
+    required_apis = [
+        "aiplatform.googleapis.com",
+        "discoveryengine.googleapis.com",
+        "bigquery.googleapis.com",
+        "logging.googleapis.com",
+        "monitoring.googleapis.com",
+        "cloudtrace.googleapis.com",
+        "cloudresourcemanager.googleapis.com"
+    ]
+    print("--> [1/7] Weryfikacja i aktywacja wymaganych interfejsów API Google Cloud...")
+    try:
+        cmd = ["gcloud", "services", "enable", *required_apis, f"--project={project_id}", "--quiet"]
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print("    ✔ Wymagane API Google Cloud są aktywne.")
+    except Exception as e:
+        print(f"    (Weryfikacja API: {e})")
+
 def enable_engine_observability(project_id, location, engine_id, token):
     """Automatycznie włącza OpenTelemetry i logowanie promptów/odpowiedzi w silniku."""
     print(f"--> [1/6] Konfiguracja obserwowalności silnika '{engine_id}'...")
@@ -242,6 +261,9 @@ def main():
     print(f"  Silnik:       {engine_id} (z dopasowania: '{engine_hint}')")
     print(f"  Zbiór danych: {dataset_id}")
     print("======================================================================")
+
+    # 0. Weryfikacja i aktywacja API
+    ensure_required_apis(project_id)
 
     # 1. Obserwowalność silnika (Auto-Enable)
     enable_engine_observability(project_id, location, engine_id, token)

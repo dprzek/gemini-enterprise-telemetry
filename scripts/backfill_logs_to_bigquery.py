@@ -125,6 +125,15 @@ def init_streaming_tables(client, project_id, dataset_id):
                         bigquery.SchemaField("agentid", "STRING"),
                     ]),
                 ]),
+                bigquery.SchemaField("query", "RECORD", fields=[
+                    bigquery.SchemaField("parts", "RECORD", mode="REPEATED", fields=[
+                        bigquery.SchemaField("text", "STRING"),
+                    ]),
+                ]),
+            ]),
+            bigquery.SchemaField("status", "RECORD", fields=[
+                bigquery.SchemaField("code", "INTEGER"),
+                bigquery.SchemaField("message", "STRING"),
             ]),
         ]),
     ]
