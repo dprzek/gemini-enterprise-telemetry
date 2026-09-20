@@ -147,18 +147,18 @@ Repozytorium zawiera narzędzie wiersza poleceń w katalogu `cli/` umożliwiają
 
 ### 1. Utylizacja Użytkownika w Rozbiciu na Poszczególne Dni (`--daily`)
 ```bash
-python3 cli/telemetry_cli.py utilization --daily --user admin@dprzek.altostrat.com
+python3 cli/telemetry_cli.py utilization --daily --user user@example.com
 ```
 *Przykładowy wynik:*
 ```text
 === Raport Dziennej Utylizacji Użytkownika (5 wpisów dziennych) ===
 Data         | Identyfikator Użytkownika    | Zdarzenia | Zapytania | Deep Rsrch | Agenty  | Tokeny    
 ------------------------------------------------------------------------------------------------
-2026-09-19   | admin@dprzek.altostrat.com   | 8         | 5         | 0          | 2       | 39,643    
-2026-09-18   | admin@dprzek.altostrat.com   | 4         | 2         | 0          | 2       | 16,840    
-2026-09-15   | admin@dprzek.altostrat.com   | 3         | 2         | 1          | 0       | 28,150    
-2026-09-12   | admin@dprzek.altostrat.com   | 4         | 3         | 0          | 1       | 23,920    
-2026-09-08   | admin@dprzek.altostrat.com   | 2         | 2         | 0          | 0       | 15,410    
+2026-09-19   | user@example.com             | 8         | 5         | 0          | 2       | 39,643    
+2026-09-18   | user@example.com             | 4         | 2         | 0          | 2       | 16,840    
+2026-09-15   | user@example.com             | 3         | 2         | 1          | 0       | 28,150    
+2026-09-12   | user@example.com             | 4         | 3         | 0          | 1       | 23,920    
+2026-09-08   | user@example.com             | 2         | 2         | 0          | 0       | 15,410    
 ```
 > [!NOTE]
 > **Zgodność Matematyczna**: Liczba `Zdarzenia` odpowiada rzeczywistej sumie akcji użytkownika (`Zapytania + Deep Rsrch + Agenty + Zdarzenia Audytu silnika`). W każdym dniu z zarejestrowanymi zapytaniami do asystenta lub zadaniami badawczymi generowane jest ściśle dodatnie zużycie `Tokenów` (tokeny promptu, odpowiedzi oraz buforowane).
@@ -188,8 +188,8 @@ python3 cli/telemetry_cli.py observability --traces
 === Ostatnie Rozproszone Ślady OpenTelemetry (2 wpisy) ===
 Czas (UTC)           | Identyfikator Śladu (Trace ID)     | Metoda         | Użytkownik                 | Status  
 --------------------------------------------------------------------------------------------------------------
-2026-09-18 11:43:09  | 5379e14ddba2e5c1860cefde7554f4c3   | StreamAssist   | admin@dprzek.altostrat.com | SUCCESS 
-2026-09-18 11:31:08  | bd5b4d06073dd350c3cbe37912532b4c   | StreamAssist   | admin@dprzek.altostrat.com | SUCCEEDED
+2026-09-18 11:43:09  | 5379e14ddba2e5c1860cefde7554f4c3   | StreamAssist   | user@example.com           | SUCCESS 
+2026-09-18 11:31:08  | bd5b4d06073dd350c3cbe37912532b4c   | StreamAssist   | user@example.com           | SUCCEEDED
 ```
 
 ### 3. Trendy Adopcji Organizacji (DAU, Zdarzenia, Zapytania)
@@ -236,24 +236,31 @@ ORDER BY activity_date DESC, total_events DESC;
 
 ---
 
-## Agent Telemetrii w Gemini Enterprise
+## Dynamiczny Agent Telemetrii w Gemini Enterprise (Google ADK & Agent Runtime)
 
-Agent jest wdrażany bezpośrednio w silniku Gemini Enterprise za pośrednictwem API Discovery Engine:
+W odróżnieniu od statycznych promptów snapshotowych, to rozwiązanie wdraża **w pełni autonomicznego i dynamicznego Agenta ADK (Google Agent Development Kit)**, hostowanego w zarządzanym środowisku **Vertex AI Agent Runtime (Reasoning Engine)** i zintegrowanego natywnie z aplikacją **Gemini Enterprise**:
 
-- **Wyświetlana Nazwa**: `Gemini Enterprise Telemetry & Adoption Monitor`
-- **Lokalizacja**: np. `eu` lub `us`
-- **Identyfikator Silnika**: Twój silnik docelowy (`<ENGINE_ID>`)
-- **Model**: `gemini-2.5-flash`
-- **Oświadczenie Powitalne**: Przy rozpoczęciu konwersacji agent natychmiast przedstawia 4 filary oferowanych metryk (utylizacja dzienna per-user, adopcja/zaangażowanie, obserwowalność i ślady, limity kwotowe).
-- **Zdolności Konwersacyjne**: Odpowiada na zapytania w języku naturalnym, generuje tabele dzień-po-dniu dla podanego użytkownika, analizuje TTFT i czasy odpowiedzi oraz ostrzega o limitach kwotowych.
+- **Oficjalna Nazwa**: `Gemini Enterprise Telemetry & Adoption Agent`
+- **Środowisko Uruchomieniowe**: Vertex AI Agent Runtime (Reasoning Engine w regionie aplikacji, np. `europe-west1` dla silników `eu`)
+- **Silnik Bazowy**: `gemini-2.5-flash`
+- **Architektura Dynamicznych Narzędzi (Zero Prompt Injection)**:
+  Agent nie posiada zahardkodowanych danych ani jednorazowych zrzutów w instrukcji systemowej. Przy **każdym pytaniu użytkownika** agent w czasie rzeczywistym autonomicznie wybiera i wywołuje jedno lub więcej narzędzi w Pythonie, bezpośrednio odpytując BigQuery oraz Cloud Monitoring API:
+  
+  1. `get_user_daily_utilization(user_email, days)`: Pobiera dokładne dzienne rozbicie aktywności wskazanego użytkownika z widoku BigQuery `v_user_daily_utilization` (zapytania, tokeny prompt/response/cache, Deep Research, agenty).
+  2. `get_user_summary(user_email)`: Zwraca łączne statystyki dla danego użytkownika lub generuje ranking najbardziej aktywnych użytkowników w organizacji.
+  3. `get_daily_adoption(days)`: Pobiera trendy DAU (Daily Active Users), łączną liczbę interakcji, sesji badawczych i spalonych tokenów z widoku `v_daily_adoption`.
+  4. `get_realtime_quotas()`: Bada w czasie rzeczywistym stan limitów kwotowych (RPM, TPM, headroom) oraz utylizację w Google Cloud Monitoring.
+  5. `get_observability_traces(days)`: Bada rozproszone ślady OpenTelemetry, liczbę zapytań w oknach czasowych, stany odpowiedzi oraz błędy z widoku `v_observability_traces`.
 
-Aby zaktualizować lub ponownie wdrożyć agenta:
+### Wdrożenie Agenta ADK:
 ```bash
-GOOGLE_CLOUD_PROJECT=<PROJECT_ID> \
-GOOGLE_CLOUD_LOCATION=<LOCATION> \
-GEMINI_ENGINE_ID=<ENGINE_ID> \
-python3 agent/deploy_agent.py
+python3 agent/deploy_adk_agent.py \
+    --project=<PROJECT_ID> \
+    --location=eu \
+    --vertex-location=europe-west1 \
+    --engine=<ENGINE_ID>
 ```
+Agent jest automatycznie rejestrowany w silniku Gemini Enterprise (`default_assistant/agents`) ze stanem `ENABLED` i natychmiast gotowy do obsługi zapytań użytkowników i administratorów.
 
 ---
 
@@ -278,8 +285,11 @@ gemini-enterprise-telemetry/
 │   ├── telemetry_service.py    # Moduł integrujący BigQuery i Cloud Monitoring
 │   └── telemetry_cli.py        # Interfejs wiersza poleceń (CLI) dla administratorów
 ├── agent/
-│   ├── telemetry_agent_definition.json # Wyeksportowana definicja agenta w JSON
-│   └── deploy_agent.py         # Skrypt wdrażający agenta z oświadczeniem powitalnym
+│   ├── adk_telemetry_agent.py  # Autonomiczny Agent ADK z dynamicznymi narzędziami BigQuery/Monitoring
+│   ├── deploy_adk_agent.py     # Skrypt wdrażający agenta do Vertex AI Reasoning Engine i rejestrujący w Gemini
+│   ├── telemetry_agent_definition.json # Kopia zapasowa konfiguracji agenta w formacie JSON
+│   └── deploy_agent.py         # Skrypt pomocniczy / legacy
+├── deploy.py                   # Główny zintegrowany instalator potoku Zero-Touch
 ├── terraform/                  # Moduł Infrastructure-as-Code (Terraform)
 │   ├── main.tf
 │   ├── variables.tf

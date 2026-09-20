@@ -193,31 +193,31 @@ gcloud monitoring dashboards create \
   --project=<PROJECT_ID>
 ```
 
-### Krok 5.6: Wdrożenie Agenta AI ds. Telemetrii i Obserwowalności
+### Krok 5.6: Wdrożenie Dynamicznego Agenta ADK (Vertex AI Agent Runtime)
 ```bash
-export GOOGLE_CLOUD_PROJECT="<PROJECT_ID>"
-export GOOGLE_CLOUD_LOCATION="<LOCATION>"
-export GEMINI_ENGINE_ID="<ENGINE_ID>"
-
-python3 agent/deploy_agent.py
+python3 agent/deploy_adk_agent.py \
+  --project="<PROJECT_ID>" \
+  --location="<LOCATION>" \
+  --vertex-location="europe-west1" \
+  --engine="<ENGINE_ID>"
 ```
 
 ---
 
 ## 6. Przewodnik Administratora: Eksploatacja Telemetrii i Obserwowalności
 
-### A. Konwersacyjny Agent Telemetrii z Oświadczeniem Powitalnym
+### A. Dynamiczny Agent ADK w Gemini Enterprise (Reasoning Engine)
 
-Gdy administrator rozpoczyna rozmowę z agentem w Gemini Enterprise, agent automatycznie rozpoczyna od **oficjalnego oświadczenia o oferowanych metrykach**:
+Agent `Gemini Enterprise Telemetry & Adoption Agent` działa w zarządzanym środowisku **Vertex AI Agent Runtime (Reasoning Engine)**. W odróżnieniu od rozwiązań statycznych, nie wykorzystuje wstrzykiwania migawek danych do promptu. Zamiast tego, przy każdym pytaniu użytkownika dynamicznie wywołuje narzędzia w czasie rzeczywistym:
 
-> **"Cześć! Jestem Twoim Agentem ds. Telemetrii i Obserwowalności Gemini Enterprise.**
-> Monitoruję wdrożenie, adopcję, wydajność platformy oraz limity kwotowe w całej Twojej organizacji.
-> 
-> **Oto 4 główne filary metryk, które dla Ciebie udostępniam:**
-> 1. 📊 **Utylizacja Użytkowników w Ujęciu Dziennym**: Dokładna aktywność per-user rozbita na konkretne dni (zdarzenia, zapytania, deep research, agenty, tokeny).
-> 2. 🚀 **Metryki Adopcji i Zaangażowania**: DAU/WAU/MAU, głębokość konwersacji (Conversational Depth), wskaźnik adopcji narzędzi (Tool Adoption Rate).
-> 3. ⏱️ **Obserwowalność, Trasy OpenTelemetry i Wydajność**: Ślady Cloud Trace, czasy odpowiedzi TTFT (Time to First Token) i opóźnienia narzędzi.
-> 4. 🛡️ **Limity Kwot i Quotas**: Pule organizacyjne dla zapytań asystenta, tworzenia agentów, Deep Research, generowania obrazów i wideo, kredytów WTU."
+- **Narzędzia Czasu Rzeczywistego**:
+  1. `get_user_daily_utilization(user_email, days)` — pobiera z BigQuery dokładną dzienną aktywność użytkownika (zapytania, tokeny, Deep Research, agenty).
+  2. `get_user_summary(user_email)` — łączne statystyki lub ranking najaktywniejszych użytkowników.
+  3. `get_daily_adoption(days)` — dzienne trendy DAU i wolumenu zapytań/tokenów.
+  4. `get_realtime_quotas()` — sprawdzenie limitów kwotowych (RPM, TPM, headroom) w Cloud Monitoring API.
+  5. `get_observability_traces(days)` — czasy odpowiedzi, stany błędów i ślady OpenTelemetry.
+
+Gdy użytkownik lub administrator rozmawia z agentem, agent autonomicznie odpytuje odpowiednie usługi i prezentuje wyniki w ustrukturyzowanej formie tabel Markdown.
 
 ---
 
@@ -248,24 +248,24 @@ python3 cli/telemetry_cli.py observability --traces
 === Ostatnie Rozproszone Ślady OpenTelemetry (2 wpisy) ===
 Czas (UTC)           | Identyfikator Śladu (Trace ID)     | Metoda         | Użytkownik                 | Status  
 --------------------------------------------------------------------------------------------------------------
-2026-09-18 11:43:09  | 5379e14ddba2e5c1860cefde7554f4c3   | StreamAssist   | admin@dprzek.altostrat.com | SUCCESS 
-2026-09-18 11:31:08  | bd5b4d06073dd350c3cbe37912532b4c   | StreamAssist   | admin@dprzek.altostrat.com | SUCCEEDED
+2026-09-18 11:43:09  | 5379e14ddba2e5c1860cefde7554f4c3   | StreamAssist   | user@example.com           | SUCCESS 
+2026-09-18 11:31:08  | bd5b4d06073dd350c3cbe37912532b4c   | StreamAssist   | user@example.com           | SUCCEEDED
 ```
 
 #### 2. Dzienna Utylizacja Konkretnego Użytkownika:
 ```bash
-python3 cli/telemetry_cli.py utilization --daily --user admin@dprzek.altostrat.com
+python3 cli/telemetry_cli.py utilization --daily --user user@example.com
 ```
 *Przykładowy wynik:*
 ```text
 === Raport Dziennej Utylizacji Użytkownika (5 wpisów dziennych) ===
 Data         | Identyfikator Użytkownika    | Zdarzenia | Zapytania | Deep Rsrch | Agenty  | Tokeny    
 ------------------------------------------------------------------------------------------------
-2026-09-19   | admin@dprzek.altostrat.com   | 8         | 5         | 0          | 2       | 39,643    
-2026-09-18   | admin@dprzek.altostrat.com   | 4         | 2         | 0          | 2       | 16,840    
-2026-09-15   | admin@dprzek.altostrat.com   | 3         | 2         | 1          | 0       | 28,150    
-2026-09-12   | admin@dprzek.altostrat.com   | 4         | 3         | 0          | 1       | 23,920    
-2026-09-08   | admin@dprzek.altostrat.com   | 2         | 2         | 0          | 0       | 15,410    
+2026-09-19   | user@example.com             | 8         | 5         | 0          | 2       | 39,643    
+2026-09-18   | user@example.com             | 4         | 2         | 0          | 2       | 16,840    
+2026-09-15   | user@example.com             | 3         | 2         | 1          | 0       | 28,150    
+2026-09-12   | user@example.com             | 4         | 3         | 0          | 1       | 23,920    
+2026-09-08   | user@example.com             | 2         | 2         | 0          | 0       | 15,410    
 ```
 
 #### 3. Trendy Adopcji w Organizacji (DAU):

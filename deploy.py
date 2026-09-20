@@ -195,15 +195,16 @@ def deploy_monitoring_dashboard(project_id):
     except Exception as e:
         print(f"    (Dashboard Cloud Monitoring: {e})")
 
-def deploy_telemetry_agent(project_id, location, engine_id):
-    """Wdraża Agenta Telemetrii w Gemini Enterprise."""
-    print("--> [6/6] Wdrażanie Agenta Telemetrii w Gemini Enterprise...")
-    agent_script = os.path.join(os.path.dirname(__file__), "agent", "deploy_agent.py")
+def deploy_telemetry_agent(project_id, location, engine_id, dataset_id="gemini_enterprise_telemetry"):
+    """Wdraża dynamicznego Agenta ADK w Vertex AI Agent Runtime i rejestruje w Gemini Enterprise."""
+    print("--> [6/6] Wdrażanie Agenta Telemetrii w Gemini Enterprise (Dynamic ADK Agent na Vertex AI Agent Runtime)...")
+    agent_script = os.path.join(os.path.dirname(__file__), "agent", "deploy_adk_agent.py")
     cmd = [
         sys.executable, agent_script,
         f"--project={project_id}",
         f"--location={location}",
-        f"--engine={engine_id}"
+        f"--engine={engine_id}",
+        f"--dataset={dataset_id}"
     ]
     subprocess.run(cmd, check=True)
 
@@ -259,7 +260,7 @@ def main():
     deploy_monitoring_dashboard(project_id)
 
     # 6. Agent Gemini Enterprise
-    deploy_telemetry_agent(project_id, location, engine_id)
+    deploy_telemetry_agent(project_id, location, engine_id, dataset_id)
 
     print("\n======================================================================")
     print("✔ Wdrożenie zakończone pełnym sukcesem! Wszystkie komponenty są aktywne.")

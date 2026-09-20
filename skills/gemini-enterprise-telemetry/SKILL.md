@@ -27,9 +27,9 @@ Niniejszy skill zawiera procedury, skrypty automatyzujące, widoki analityczne S
    - Rozproszone ślady i spany: [Cloud Trace OpenTelemetry Spans](https://cloud.google.com/gemini/enterprise/docs/access-traces-and-spans) łączone deterministycznie w BigQuery po `trace_id` i `session_id`.
    - Metryki operacyjne: [Cloud Monitoring](https://cloud.google.com/gemini/enterprise/docs/access-metrics) (`agent_session_count`, `agent_turn_count`, `agent_session_with_tool_count`, `engine/time_to_first_token_latency` TTFT).
    - Bieżące monitorowanie limitów kwotowych i tempa ich zużycia (`discoveryengine.googleapis.com/quota/*`).
-4. **Agent Gemini Enterprise**: Wdrożony bezpośrednio w silniku Gemini Enterprise (Discovery Engine / Agent Builder).
-   - Rozpoczyna konwersację od **oświadczenia o oferowanych metrykach** (utylizacja dzienna, adopcja/zaangażowanie, obserwowalność/ślady, limity kwotowe).
-   - Odpowiada na zapytania o aktywność użytkowników w poszczególnych dniach, rankingi, opóźnienia i limity kwotowe.
+4. **Dynamiczny Agent ADK (Google Agent Development Kit & Vertex AI Agent Runtime)**:
+   - Wdrożony w zarządzanym środowisku **Vertex AI Agent Runtime (Reasoning Engine)** i zintegrowany z aplikacją Gemini Enterprise jako `Gemini Enterprise Telemetry & Adoption Agent`.
+   - Zamiast statycznych snapshotów, agent dynamicznie i w czasie rzeczywistym odpytuje BigQuery (`v_user_daily_utilization`, `v_user_summary`, `v_daily_adoption`, `v_observability_traces`) oraz Cloud Monitoring API za pomocą 5 dedykowanych narzędzi w Pythonie.
 5. **CLI Administratora**: Natychmiastowe badanie utylizacji po dniach (`--daily`), trendów adopcji i metryk obserwowalności (`python3 cli/telemetry_cli.py observability --traces`).
 
 ---

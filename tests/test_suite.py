@@ -401,6 +401,36 @@ class GeminiEnterpriseTelemetryTestSuite(unittest.TestCase):
         self.assertIn("Wdrożenie zakończone pełnym sukcesem", res.stdout)
         self.assertIn("✔ Obserwowalność silnika (OpenTelemetry + Sensitive Logging) jest już aktywna", res.stdout)
 
+    # --------------------------------------------------------------------------
+    # TEST 11: Walidacja Agenta ADK (google.adk.agents.Agent) i dynamicznych narzędzi
+    # --------------------------------------------------------------------------
+    def test_11_adk_agent_definition_and_tools(self):
+        """Weryfikuje konfigurację i integralność dynamicznego agenta ADK oraz jego 5 narzędzi."""
+        from agent.adk_telemetry_agent import root_agent
+
+        self.assertEqual(root_agent.name, "gemini_enterprise_telemetry_agent")
+        self.assertEqual(root_agent.model, "gemini-2.5-flash")
+        self.assertEqual(len(root_agent.tools), 5)
+
+        tool_names = [t.__name__ for t in root_agent.tools]
+        expected_tools = [
+            "get_user_daily_utilization",
+            "get_user_summary",
+            "get_daily_adoption",
+            "get_realtime_quotas",
+            "get_observability_traces",
+        ]
+        for expected in expected_tools:
+            self.assertIn(expected, tool_names)
+
+        # Weryfikacja działania narzędzia offline lub z mockiem
+        from agent.adk_telemetry_agent import get_realtime_quotas
+        quotas_json = get_realtime_quotas()
+        quotas = json.loads(quotas_json)
+        self.assertIn("rate_limits", quotas)
+        self.assertIn("quota_status", quotas)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
