@@ -274,6 +274,7 @@ def main():
         except Exception:
             default_proj = ""
     default_engine = os.environ.get("GEMINI_ENGINE_ID", "")
+    parser.add_argument("--project", "-p", default=default_proj, help="Google Cloud Project ID")
     parser.add_argument("--engine", default=default_engine, help="Discovery Engine / Gemini Enterprise Engine ID lub nazwa aplikacji")
     parser.add_argument("--engine-id", dest="engine_id_flag", default=None, help="Jawny identyfikator silnika Discovery Engine (Engine ID)")
     parser.add_argument("--location", default="eu", help="Gemini Enterprise Location (eu, global, us)")
