@@ -31,13 +31,19 @@ from google.auth.transport.requests import Request
 
 
 def _get_env_config():
-    """Resolves project_id and dataset_id from environment."""
+    """Resolves project_id and dataset_id from environment with multi-layer fallback."""
     project_id = os.environ.get("BIGQUERY_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT")
     if not project_id:
         try:
             _, project_id = google.auth.default()
         except Exception:
             project_id = None
+    if not project_id:
+        try:
+            client = bigquery.Client()
+            project_id = client.project
+        except Exception:
+            pass
     if not project_id:
         raise ValueError("Nie określono identyfikatora projektu GCP (ustaw BIGQUERY_PROJECT lub GOOGLE_CLOUD_PROJECT).")
     dataset_id = os.environ.get("BIGQUERY_DATASET", "gemini_enterprise_telemetry")

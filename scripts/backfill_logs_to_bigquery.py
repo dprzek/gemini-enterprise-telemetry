@@ -36,7 +36,13 @@ def fetch_logs(project_id, filter_str, days=30, limit=1000):
     except json.JSONDecodeError:
         return []
 
+
 def parse_activity_entry(e):
+    agents_obj = e.get("jsonPayload", {}).get("request", {}).get("agentsSpec") or e.get("jsonPayload", {}).get("request", {}).get("agentsspec") or {}
+    specs_list = agents_obj.get("agentSpecs") or agents_obj.get("agentspecs") or [{}]
+    first_spec = specs_list[0] if specs_list else {}
+    agent_id = first_spec.get("agentId") or first_spec.get("agentid") or ""
+
     return {
         "insert_id": e.get("insertId", ""),
         "timestamp": e.get("timestamp"),
@@ -46,7 +52,7 @@ def parse_activity_entry(e):
         "engine": e.get("jsonPayload", {}).get("request", {}).get("userEvent", {}).get("engine", e.get("jsonPayload", {}).get("request", {}).get("userevent", {}).get("engine", e.get("jsonPayload", {}).get("logMetadata", {}).get("name", ""))),
         "page_type": e.get("jsonPayload", {}).get("request", {}).get("userEvent", {}).get("agentspaceInfo", {}).get("agentspacePageType", e.get("jsonPayload", {}).get("request", {}).get("userevent", {}).get("agentspaceinfo", {}).get("agentspacepagetype", "")),
         "event_type": e.get("jsonPayload", {}).get("request", {}).get("userEvent", {}).get("eventType", e.get("jsonPayload", {}).get("request", {}).get("userevent", {}).get("eventtype", "")),
-        "agent_id": (e.get("jsonPayload", {}).get("request", {}).get("agentsSpec", {}).get("agentSpecs", [{}])[0].get("agentId", "") if e.get("jsonPayload", {}).get("request", {}).get("agentsSpec") else ""),
+        "agent_id": agent_id,
         "raw_payload": json.dumps(e.get("jsonPayload", {}))
     }
 

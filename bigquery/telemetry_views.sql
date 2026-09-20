@@ -427,3 +427,36 @@ SELECT
 FROM `{project_id}.{dataset_id}.discoveryengine_googleapis_com_gemini_enterprise_user_activity`
 WHERE trace IS NOT NULL
 ORDER BY timestamp DESC;
+
+-- 7. Widok szczegółowej telemetrii zużycia tokenów LLM (OpenTelemetry Spans & GenAI Operations)
+CREATE OR REPLACE VIEW `{project_id}.{dataset_id}.v_token_telemetry` AS
+SELECT
+  timestamp,
+  DATE(timestamp) AS activity_date,
+  insertId AS insert_id,
+  trace AS trace_id,
+  spanId AS span_id,
+  CAST(COALESCE(jsonPayload.gen_ai_usage_input_tokens, 0) AS INT64) AS input_tokens,
+  CAST(COALESCE(jsonPayload.gen_ai_usage_output_tokens, 0) AS INT64) AS output_tokens,
+  CAST(COALESCE(jsonPayload.gen_ai_usage_reasoning_output_tokens, 0) AS INT64) AS cached_tokens,
+  (CAST(COALESCE(jsonPayload.gen_ai_usage_input_tokens, 0) AS INT64) + CAST(COALESCE(jsonPayload.gen_ai_usage_output_tokens, 0) AS INT64)) AS total_tokens,
+  COALESCE(jsonPayload.gen_ai_agent_name, "") AS agent_name,
+  severity
+FROM `{project_id}.{dataset_id}.discoveryengine_googleapis_com_gen_ai_client_inference_operation_details`
+
+UNION ALL
+
+SELECT
+  timestamp,
+  DATE(timestamp) AS activity_date,
+  insert_id,
+  NULL AS trace_id,
+  NULL AS span_id,
+  CAST(COALESCE(input_tokens, 0) AS INT64) AS input_tokens,
+  CAST(COALESCE(output_tokens, 0) AS INT64) AS output_tokens,
+  CAST(COALESCE(cached_tokens, 0) AS INT64) AS cached_tokens,
+  (CAST(COALESCE(input_tokens, 0) AS INT64) + CAST(COALESCE(output_tokens, 0) AS INT64)) AS total_tokens,
+  COALESCE(agent_name, "") AS agent_name,
+  "DEFAULT" AS severity
+FROM `{project_id}.{dataset_id}.gen_ai_client_inference_operation_details`;
+
