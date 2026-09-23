@@ -194,7 +194,8 @@ def register_adk_agent_in_gemini(project_id, project_number, location, engine_id
         headers={
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
-            "X-Goog-User-Project": project_id
+            "X-Goog-User-Project": project_id,
+            "User-Agent": "Gemini-Enterprise-Telemetry-Deployer/1.0"
         },
         method="POST"
     )

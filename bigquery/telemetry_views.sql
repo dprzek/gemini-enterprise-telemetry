@@ -8,6 +8,28 @@ WITH primary_admin AS (
   ORDER BY timestamp ASC
   LIMIT 1
 ),
+telemetry_agents AS (
+  SELECT DISTINCT REGEXP_EXTRACT(
+    COALESCE(
+      JSON_VALUE(JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.responseJson"), "$.name"),
+      ""
+    ),
+    r"/agents/([^/]+)"
+  ) AS agent_id
+  FROM `{project_id}.{dataset_id}.cloudaudit_googleapis_com_activity`
+  WHERE (
+    COALESCE(JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.requestMetadata.callerSuppliedUserAgent"), "") LIKE "%Python%"
+    OR COALESCE(JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.requestMetadata.callerSuppliedUserAgent"), "") LIKE "%Telemetry%"
+    OR TO_JSON_STRING(protopayload_auditlog) LIKE "%Gemini Enterprise Telemetry%"
+  )
+  AND REGEXP_EXTRACT(
+    COALESCE(
+      JSON_VALUE(JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.responseJson"), "$.name"),
+      ""
+    ),
+    r"/agents/([^/]+)"
+  ) IS NOT NULL
+),
 raw_user_events AS (
   SELECT * FROM (
     -- Strumień aktywności użytkowników ze zlewu Cloud Logging (czas rzeczywisty)
@@ -16,6 +38,7 @@ raw_user_events AS (
       timestamp,
       COALESCE(
         NULLIF(NULLIF(TRIM(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.useriamprincipal")), "<elided>"), ""),
+        (SELECT email FROM primary_admin),
         NULLIF(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.userpseudoid"), ""),
         "system"
       ) AS user_id,
@@ -66,6 +89,10 @@ raw_user_events AS (
            COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.name"), "") LIKE "%/agents/deep_research"
            OR COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.agent.name"), "") LIKE "%/agents/deep_research"
            OR TO_JSON_STRING(jsonPayload) LIKE "%deep_research%"
+           OR REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.name"), ""), r"/agents/([^/]+)") IN (SELECT agent_id FROM telemetry_agents)
+           OR TO_JSON_STRING(jsonPayload) LIKE "%Gemini Enterprise Telemetry%"
+           OR TO_JSON_STRING(jsonPayload) LIKE "%Telemetry & Adoption%"
+           OR TO_JSON_STRING(jsonPayload) LIKE "%telemetry_agent%"
          ) THEN 1
         ELSE 0
       END AS is_custom_agent_created,
@@ -86,6 +113,7 @@ raw_user_events AS (
       timestamp,
       COALESCE(
         NULLIF(NULLIF(TRIM(user_iam_principal), "<elided>"), ""),
+        (SELECT email FROM primary_admin),
         NULLIF(user_pseudo_id, ""),
         "system"
       ) AS user_id,
@@ -125,6 +153,9 @@ raw_user_events AS (
          AND NOT (
            agent_id = "deep_research"
            OR raw_payload LIKE "%agents/deep_research%"
+           OR raw_payload LIKE "%Gemini Enterprise Telemetry%"
+           OR raw_payload LIKE "%Telemetry & Adoption%"
+           OR raw_payload LIKE "%telemetry_agent%"
          ) THEN 1
         ELSE 0
       END AS is_custom_agent_created,
@@ -170,6 +201,11 @@ raw_audit AS (
     CASE 
       WHEN COALESCE(method_name, JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.methodName"), "") LIKE "%CreateAgent%"
        AND NOT COALESCE(resource_name, JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.resourceName"), "") LIKE "%/agents/deep_research"
+       AND NOT COALESCE(JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.requestMetadata.callerSuppliedUserAgent"), "") LIKE "%Python%"
+       AND NOT COALESCE(JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.requestMetadata.callerSuppliedUserAgent"), "") LIKE "%Telemetry%"
+       AND NOT REGEXP_EXTRACT(COALESCE(JSON_VALUE(JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.responseJson"), "$.name"), ""), r"/agents/([^/]+)") IN (SELECT agent_id FROM telemetry_agents)
+       AND NOT TO_JSON_STRING(protopayload_auditlog) LIKE "%Gemini Enterprise Telemetry%"
+       AND NOT TO_JSON_STRING(protopayload_auditlog) LIKE "%Telemetry & Adoption%"
        AND COALESCE(SAFE_CAST(JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.status.code") AS INT64), 0) = 0 THEN 1 
       ELSE 0 
     END AS is_custom_agent_created
@@ -179,6 +215,11 @@ raw_audit AS (
     NULLIF(JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.authenticationInfo.principalEmail"), ""),
     ""
   ) LIKE "%@gcp-sa-%.iam.gserviceaccount.com"
+  AND (
+    COALESCE(method_name, JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.methodName"), "") LIKE "%Agent%"
+    OR COALESCE(method_name, JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.methodName"), "") LIKE "%Assist%"
+    OR COALESCE(method_name, JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.methodName"), "") LIKE "%Search%"
+  )
   QUALIFY ROW_NUMBER() OVER(
     PARTITION BY COALESCE(NULLIF(insert_id, ""), NULLIF(insertId, ""), CONCAT(CAST(timestamp AS STRING), "_", COALESCE(method_name, JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.methodName"), "")))
     ORDER BY timestamp
@@ -203,6 +244,7 @@ raw_tokens AS (
       inf.timestamp,
       COALESCE(
         NULLIF(NULLIF(TRIM(JSON_VALUE(TO_JSON_STRING(act.jsonPayload), "$.useriamprincipal")), "<elided>"), ""),
+        (SELECT email FROM primary_admin),
         NULLIF(JSON_VALUE(TO_JSON_STRING(act.jsonPayload), "$.request.userevent.userpseudoid"), ""),
         CASE WHEN act.timestamp IS NOT NULL THEN (SELECT email FROM primary_admin) ELSE "unassigned" END
       ) AS user_id,
@@ -330,6 +372,36 @@ ORDER BY activity_date DESC;
 
 -- 5. Widok podziału wykorzystania poszczególnych modułów i funkcji
 CREATE OR REPLACE VIEW `{project_id}.{dataset_id}.v_feature_usage` AS
+WITH primary_admin AS (
+  SELECT JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.authenticationInfo.principalEmail") AS email
+  FROM `{project_id}.{dataset_id}.cloudaudit_googleapis_com_activity`
+  WHERE JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.authenticationInfo.principalEmail") IS NOT NULL 
+    AND NOT JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.authenticationInfo.principalEmail") LIKE "%gserviceaccount.com"
+  ORDER BY timestamp ASC
+  LIMIT 1
+),
+telemetry_agents AS (
+  SELECT DISTINCT REGEXP_EXTRACT(
+    COALESCE(
+      JSON_VALUE(JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.responseJson"), "$.name"),
+      ""
+    ),
+    r"/agents/([^/]+)"
+  ) AS agent_id
+  FROM `{project_id}.{dataset_id}.cloudaudit_googleapis_com_activity`
+  WHERE (
+    COALESCE(JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.requestMetadata.callerSuppliedUserAgent"), "") LIKE "%Python%"
+    OR COALESCE(JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.requestMetadata.callerSuppliedUserAgent"), "") LIKE "%Telemetry%"
+    OR TO_JSON_STRING(protopayload_auditlog) LIKE "%Gemini Enterprise Telemetry%"
+  )
+  AND REGEXP_EXTRACT(
+    COALESCE(
+      JSON_VALUE(JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.responseJson"), "$.name"),
+      ""
+    ),
+    r"/agents/([^/]+)"
+  ) IS NOT NULL
+)
 SELECT
   feature_name,
   COUNT(*) AS total_calls,
@@ -341,6 +413,7 @@ FROM (
     timestamp,
     COALESCE(
       NULLIF(NULLIF(TRIM(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.useriamprincipal")), "<elided>"), ""),
+      (SELECT email FROM primary_admin),
       NULLIF(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.userpseudoid"), ""),
       "system"
     ) AS user_id,
@@ -358,13 +431,29 @@ FROM (
          OR LOWER(TO_JSON_STRING(jsonPayload)) LIKE "%image-generation%"
        ) THEN "Image Generation (Modele graficzne)"
       WHEN COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.methodname"), "") IN ("StreamAssist", "Assist") THEN "General Assistant"
-      WHEN COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.methodname"), "") = "CreateAgent" THEN "Custom Agent Creation"
+      WHEN COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.methodname"), "") = "CreateAgent"
+       AND NOT (
+         COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.name"), "") LIKE "%/agents/deep_research"
+         OR COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.agent.name"), "") LIKE "%/agents/deep_research"
+         OR TO_JSON_STRING(jsonPayload) LIKE "%deep_research%"
+       ) THEN "Custom Agent Creation"
       WHEN COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.methodname"), "") = "UpdateAgent" THEN "Custom Agent Edit"
       WHEN COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.agentspaceinfo.agentspacepagetype"), "") != "" 
         THEN CONCAT("UI: ", JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.agentspaceinfo.agentspacepagetype"))
       ELSE COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.methodname"), "Other")
     END AS feature_name
   FROM `{project_id}.{dataset_id}.discoveryengine_googleapis_com_gemini_enterprise_user_activity`
+  WHERE NOT (
+    COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.methodname"), "") = "CreateAgent"
+    AND (
+      COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.name"), "") LIKE "%/agents/deep_research"
+      OR COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.agent.name"), "") LIKE "%/agents/deep_research"
+      OR TO_JSON_STRING(jsonPayload) LIKE "%deep_research%"
+      OR REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.name"), ""), r"/agents/([^/]+)") IN (SELECT agent_id FROM telemetry_agents)
+      OR TO_JSON_STRING(jsonPayload) LIKE "%Gemini Enterprise Telemetry%"
+      OR TO_JSON_STRING(jsonPayload) LIKE "%Telemetry & Adoption%"
+    )
+  )
   
   UNION ALL
   
@@ -372,6 +461,7 @@ FROM (
     timestamp,
     COALESCE(
       NULLIF(NULLIF(TRIM(user_iam_principal), "<elided>"), ""),
+      (SELECT email FROM primary_admin),
       NULLIF(user_pseudo_id, ""),
       "system"
     ) AS user_id,
@@ -386,12 +476,27 @@ FROM (
          OR LOWER(raw_payload) LIKE "%image-generation%"
        ) THEN "Image Generation (Modele graficzne)"
       WHEN method_name IN ("StreamAssist", "Assist") THEN "General Assistant"
-      WHEN method_name = "CreateAgent" THEN "Custom Agent Creation"
+      WHEN method_name = "CreateAgent"
+       AND NOT (
+         agent_id = "deep_research"
+         OR raw_payload LIKE "%agents/deep_research%"
+         OR raw_payload LIKE "%deep_research%"
+       ) THEN "Custom Agent Creation"
       WHEN method_name = "UpdateAgent" THEN "Custom Agent Edit"
       WHEN COALESCE(page_type, "") != "" THEN CONCAT("UI: ", page_type)
       ELSE COALESCE(method_name, "Other")
     END AS feature_name
   FROM `{project_id}.{dataset_id}.gemini_enterprise_user_activity`
+  WHERE NOT (
+    method_name = "CreateAgent"
+    AND (
+      agent_id = "deep_research"
+      OR raw_payload LIKE "%agents/deep_research%"
+      OR raw_payload LIKE "%deep_research%"
+      OR raw_payload LIKE "%Gemini Enterprise Telemetry%"
+      OR raw_payload LIKE "%Telemetry & Adoption%"
+    )
+  )
 )
 WHERE user_id != "system"
 GROUP BY feature_name
@@ -399,6 +504,14 @@ ORDER BY total_calls DESC;
 
 -- 6. Widok rozproszonych śladów i spanów OpenTelemetry (Cloud Trace)
 CREATE OR REPLACE VIEW `{project_id}.{dataset_id}.v_observability_traces` AS
+WITH primary_admin AS (
+  SELECT JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.authenticationInfo.principalEmail") AS email
+  FROM `{project_id}.{dataset_id}.cloudaudit_googleapis_com_activity`
+  WHERE JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.authenticationInfo.principalEmail") IS NOT NULL 
+    AND NOT JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.authenticationInfo.principalEmail") LIKE "%gserviceaccount.com"
+  ORDER BY timestamp ASC
+  LIMIT 1
+)
 SELECT
   timestamp,
   DATE(timestamp) AS trace_date,
@@ -406,6 +519,7 @@ SELECT
   spanId AS span_id,
   COALESCE(
     NULLIF(NULLIF(TRIM(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.useriamprincipal")), "<elided>"), ""),
+    (SELECT email FROM primary_admin),
     JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.userpseudoid"),
     "anonymous_user"
   ) AS user_id,
