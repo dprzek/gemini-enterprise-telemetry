@@ -276,6 +276,9 @@ Czas (UTC)           | Identyfikator Śladu (Trace ID)     | Metoda         | U�
 # Zbiorcze zestawienie wszystkich użytkowników wraz ze statystykami autorskich agentów:
 python3 cli/telemetry_cli.py utilization
 
+# Zestawienie 10 najmniej aktywnych użytkowników (Bottom 10):
+python3 cli/telemetry_cli.py utilization --bottom 10
+
 # Szczegółowa dzienna utylizacja konkretnego pracownika:
 python3 cli/telemetry_cli.py utilization --daily --user admin@dprzek.altostrat.com
 ```
@@ -419,6 +422,8 @@ python3 tests/test_suite.py
     - Weryfikuje domyślne `sensitiveLoggingEnabled: True` + Exclusion Filter w Cloud Logging oraz `sharingConfig: RESTRICTED`.
 22. **Test 22: Statystyki Wywołań Autorskich Agentów (Self-Usage & Org-Wide Invariants)**
     - Weryfikuje metryki wywołań agentów autora (`author_agent_*`) i organizacji (`org_agent_*`) oraz ich niezmienniki matematyczne.
+23. **Test 23: Wyjściowa Propozycja Bottom 10 i Sortowanie Aktywności Użytkowników**
+    - Potwierdza sortowanie rosnące (`order_by="bottom"` / `"asc"`), integralność kolumn tabeli wyjściowej oraz instrukcję systemową agenta ADK.
 
 ---
 

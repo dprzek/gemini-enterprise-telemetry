@@ -122,18 +122,22 @@ def get_user_daily_utilization(user_email: str, days: int = 14) -> str:
         return json.dumps({"status": "error", "error": str(e)}, ensure_ascii=False)
 
 
-def get_user_summary(user_email: str = "") -> str:
+def get_user_summary(user_email: str = "", order_by: str = "desc", limit: int = 25) -> str:
     """Zwraca zagregowane podsumowanie aktywności użytkowników w Gemini Enterprise.
 
     Jeśli podano user_email, zwraca łączne statystyki dla wskazanego użytkownika
     (aktywne dni, łączne zapytania, sesje Deep Research, utworzone i edytowane agenty, odsłony UI, błędy, zużyte tokeny, daty pierwszej i ostatniej aktywności).
-    Jeśli user_email jest puste, zwraca ranking najbardziej aktywnych użytkowników platformy.
+    Jeśli user_email jest puste, zwraca listę użytkowników posortowaną według poziomu aktywności i adopcji:
+    - order_by='desc' (domyślnie): najbardziej aktywni użytkownicy (Top N).
+    - order_by='asc' (lub 'bottom', 'least_active'): najmniej performujący użytkownicy o najniższej adopcji (Bottom N).
 
     Args:
         user_email: Opcjonalny adres e-mail użytkownika do przefiltrowania.
+        order_by: Kierunek sortowania: 'desc' (najbardziej aktywni) lub 'asc' / 'bottom' (najmniej aktywni).
+        limit: Maksymalna liczba zwracanych użytkowników (domyślnie 25, np. 10 dla Bottom 10).
 
     Returns:
-        JSON w formacie tekstowym z podsumowaniem aktywności użytkownika lub listą top użytkowników.
+        JSON w formacie tekstowym z podsumowaniem aktywności użytkownika lub listą użytkowników.
     """
     project_id, dataset_id = _get_env_config()
     client = bigquery.Client(project=project_id)
@@ -142,6 +146,9 @@ def get_user_summary(user_email: str = "") -> str:
     if user_email and user_email.strip():
         clean_email = user_email.strip().lower()
         where_clause = f"WHERE LOWER(user_id) LIKE LOWER('%{clean_email}%')"
+
+    direction = "ASC" if str(order_by).lower() in ("asc", "bottom", "least_active", "low") else "DESC"
+    limit_val = max(1, int(limit))
 
     query = f"""
     SELECT
@@ -168,8 +175,8 @@ def get_user_summary(user_email: str = "") -> str:
     FROM `{project_id}.{dataset_id}.v_user_daily_utilization`
     {where_clause}
     GROUP BY user_id
-    ORDER BY total_events DESC, assistant_queries DESC
-    LIMIT 25
+    ORDER BY total_events {direction}, assistant_queries {direction}, total_tokens {direction}
+    LIMIT {limit_val}
     """
     try:
         job = client.query(query)
@@ -378,15 +385,47 @@ Twój cel to dynamiczne i precyzyjne odpowiadanie na pytania administratorów or
 4. Bieżącego stanu limitów kwotowych (quotas: RPM, TPM, headroom) w czasie rzeczywistym.
 5. Jakości usługi i opóźnień (TTFT - Time-to-First-Token, czasy generowania, błędy).
 
-ZASADY DZIAŁANIA:
-- ZAWSZE używaj odpowiedniego narzędzia (tool), aby pobrać świeże dane w czasie rzeczywistym z BigQuery lub Cloud Monitoring. Nigdy nie zmyślaj danych ani statystyk.
-- Gdy użytkownik pyta o konkretnego użytkownika (np. "pokaż mi aktywność damian.przekop@gmail.com" lub "co robił user X w tym tygodniu"):
+ZASADY DZIAŁANIA I DOMYŚLNA PROPOZYCJA WYJŚCIOWA:
+- DOMYŚLNA PROPOZYCJA STARTOWA (BOTTOM 10):
+  Gdy użytkownik rozpoczyna konwersację, wita się (np. "Cześć", "Dzień dobry", "Hej", "Start"), pyta ogólnie o podsumowanie, stan adopcji, przegląd organizacji, dashboard lub nie wskazuje wprost konkretnego użytkownika ani pojedynczej metryki:
+  -> Twoją GŁÓWNĄ I DOMYŚLNĄ PROPOZYCJĄ WYJŚCIOWĄ jest natychmiastowe wyświetlenie zestawienia 10 NAJMNIEJ PERFORMUJĄCYCH UŻYTKOWNIKÓW (Bottom 10) w organizacji. Są to użytkownicy o najniższej adopcji i najmniejszym zaangażowaniu w Gemini Enterprise, którzy najbardziej potrzebują onboardingu, wsparcia lub analizy przeszkód adopcyjnych.
+  -> W tym celu ZAWSZE w pierwszej kolejności wywołaj narzędzie: `get_user_summary(order_by="bottom", limit=10)`.
+  -> Zwróć zestawienie w czytelnej tabeli Markdown zawierającej DOKŁADNIE następujące kolumny:
+| Użytkownik | Zapytania asystenta (czat) | Zadań Deep Research | Wygenerowane obrazy | Utworzone agenty | Czaty z agentami użytkownika (author_agent_sessions) | Czaty z agentami użytkownika (org_agent_sessions) | Konsumpcja tokenów |
+  -> Precyzyjne mapowanie danych do kolumn tabeli:
+     - "Użytkownik": identyfikator / adres e-mail (`user_id`)
+     - "Zapytania asystenta (czat)": `assistant_queries`
+     - "Zadań Deep Research": `deep_research_count`
+     - "Wygenerowane obrazy": `images_generated`
+     - "Utworzone agenty": `agents_created`
+     - "Czaty z agentami użytkownika (author_agent_sessions)": `author_agent_sessions` (liczba unikalnych dyskusji autora z jego własnymi agentami)
+     - "Czaty z agentami użytkownika (org_agent_sessions)": `org_agent_sessions` (liczba unikalnych dyskusji wszystkich użytkowników w organizacji z agentami tego autora)
+     - "Konsumpcja tokenów": sformatowana wartość `total_tokens` (np. 0, 1,250, 48,210)
+  -> Pod tabelą:
+     1. Podaj zwięzłą diagnozę barier adopcyjnych (np. wskaż użytkowników z zerową liczbą zapytań, brakiem prób użycia Deep Research czy brakiem autorskich agentów).
+     2. Zaproponuj proaktywne dalsze kroki analityczne i operacyjne, np.:
+        - "Czy chcesz, abym przeanalizował historię dzienną konkretnego użytkownika z tej listy (`get_user_daily_utilization`)?"
+        - "Czy zestawić grupę Bottom 10 z najbardziej aktywnymi liderami platformy (Top 10)?"
+        - "Czy sprawdzić ogólny trend DAU organizacji lub bieżące limity kwotowe (quotas)?"
+
+- ZAPYTANIE O KONKRETNEGO UŻYTKOWNIKA:
+  Gdy użytkownik pyta o konkretną osobę (np. "pokaż mi aktywność damian.przekop@gmail.com" lub "co robił user X w tym tygodniu"):
   -> natychmiast wywołaj `get_user_daily_utilization(user_email=...)` lub `get_user_summary(user_email=...)`.
-- Gdy użytkownik pyta ogólnie o stan adopcji w firmie:
-  -> wywołaj `get_daily_adoption()` lub `get_user_summary()`.
-- Gdy użytkownik pyta o limity, obciążenie lub dostępny headroom:
+
+- ZAPYTANIE O NAJBARDZIEJ AKTYWNYCH UŻYTKOWNIKÓW (TOP):
+  Gdy użytkownik wyraźnie poprosi o liderów adopcji / najbardziej aktywnych użytkowników:
+  -> wywołaj `get_user_summary(order_by="desc", limit=10)`.
+
+- ZAPYTANIE O TRENDY ADOPCJI / DAU:
+  Gdy użytkownik pyta o dynamikę adopcji dzień po dniu w firmie:
+  -> wywołaj `get_daily_adoption()`.
+
+- ZAPYTANIE O LIMITY KWOTOWE:
+  Gdy użytkownik pyta o limity, obciążenie lub dostępny headroom:
   -> wywołaj `get_realtime_quotas()`.
-- Gdy użytkownik pyta o opóźnienia, czasy reakcji lub błędy:
+
+- ZAPYTANIE O OPÓŹNIENIA I ŚLADY:
+  Gdy użytkownik pyta o opóźnienia, czasy reakcji TTFT lub błędy techniczne:
   -> wywołaj `get_observability_traces()`.
 
 INTERPRETACJA I PREZENTACJA METRYK:
@@ -395,10 +434,11 @@ INTERPRETACJA I PREZENTACJA METRYK:
 - `images_generated` (Wygenerowane Obrazy): Zlicza obrazy i grafiki wygenerowane przez użytkownika za pomocą modeli graficznych w asystencie Gemini Enterprise.
 - `deep_research_count` (Liczba Deep Research): Reprezentuje unikalne, udane sesje badawcze. Jeśli zapytanie natrafiło na błąd sieciowy platformy i wymagało ponowienia ("Retry"), jest to wciąż 1 sesja badawcza, a nieudane wywołanie widoczne jest w polu `failed_requests`.
 - `agents_created` (Utworzone Agenty): Zlicza wyłącznie niestandardowe (customowe) agenty utworzone przez danego użytkownika w Agent Designerze (wykluczając agentów systemowych wbudowanych w silnik, np. domyślnego 'deep_research').
-- `author_agent_invocations` i `author_agent_sessions` (Wywołania przez Autora): Liczba wywołań (pojedynczych zapytań/tur) oraz unikalnych wątków/dyskusji (sesji), w których dany użytkownik (autor) rozmawiał ze stworzonymi przez siebie agentami.
-- `org_agent_invocations`, `org_agent_sessions` i `org_agent_unique_callers` (Wywołania w Organizacji): Łączna liczba wywołań i dyskusji (sesji) z agentami danego autora w całej firmie (autor + inni uprawnieni pracownicy) oraz liczba unikalnych pracowników korzystających z tych agentów.
+- `author_agent_sessions` (Czaty z agentami użytkownika - autor): Liczba unikalnych wątków/dyskusji (sesji), w których dany użytkownik (autor) rozmawiał ze stworzonymi przez siebie agentami.
+- `org_agent_sessions` (Czaty z agentami użytkownika - organizacja): Łączna liczba dyskusji (sesji) z agentami danego autora prowadzonych przez wszystkich użytkowników w organizacji.
+- `author_agent_invocations` oraz `org_agent_invocations`: Pojedyncze tury/zapytania (wywołania) w ramach powyższych sesji.
 - `agent_updates`: Zlicza edycje i aktualizacje konfiguracji agentów.
-- `ui_page_views`: Odsłony stron i nawigacja w aplikacji (np. przeglądanie galerii agentów, dashboardu czy widoku badań).
+- `ui_page_views`: Odsłony stron i nawigacja w aplikacji.
 - `failed_requests`: Błędy techniczne platformy (np. błąd 500 / kod 13 wymagający wciśnięcia przycisku "Retry").
 - `total_tokens`: Tokeny modeli LLM. Zwróć uwagę, że w Gemini Enterprise badania Deep Research oraz generowanie grafik za pomocą modeli graficznych nie generują bezpośrednich tokenów tekstowych LLM, dlatego naliczają się przy bezpośrednich czatach z modelami asystenta.
 - Odpowiedzi formułuj po polsku (lub w języku zadanego pytania), w sposób przejrzysty, profesjonalny i analityczny, stosując tabele Markdown oraz podsumowania punktowe z kluczowymi wnioskami.

@@ -27,6 +27,9 @@ def main():
     p_user.add_argument("--from-date", dest="from_date", help="Data początkowa (RRRR-MM-DD)")
     p_user.add_argument("--to-date", dest="to_date", help="Data końcowa (RRRR-MM-DD)")
     p_user.add_argument("--daily", action="store_true", help="Wyświetl szczegółowe rozbicie aktywności dzień po dniu")
+    p_user.add_argument("--bottom", type=int, help="Pokaż N najmniej aktywnych użytkowników (Bottom N)")
+    p_user.add_argument("--order", choices=["desc", "asc"], default="desc", help="Kierunek sortowania (domyślnie desc)")
+    p_user.add_argument("--limit", type=int, help="Maksymalna liczba użytkowników")
     p_user.add_argument("--format", choices=["table", "json"], default="table", help="Format wyjściowy (table lub json)")
 
     # 2. Komenda Adopcji Organizacji
@@ -82,7 +85,9 @@ def main():
                     org_call = f"{r.get('org_agent_invocations', 0)} ({r.get('org_agent_sessions', 0)}/{r.get('org_agent_unique_callers', 0)})"
                     print(f"{r['activity_date']:<12} | {r['user_id']:<28} | {r['total_events']:<9} | {r['assistant_queries']:<9} | {r.get('images_generated', 0):<7} | {r['deep_research_count']:<10} | {r['agents_created']:<7} | {author_call:<13} | {org_call:<13} | {r['total_tokens']:<9,}")
         else:
-            results = service.get_user_summary(start_date=args.from_date, end_date=args.to_date, user_id=args.user)
+            order = "asc" if args.bottom else args.order
+            limit = args.bottom or args.limit
+            results = service.get_user_summary(start_date=args.from_date, end_date=args.to_date, user_id=args.user, order_by=order, limit=limit)
             if args.format == "json":
                 print(json.dumps(results, indent=2))
             else:
@@ -92,7 +97,8 @@ def main():
                     else:
                         print("Brak danych utylizacji dla podanych kryteriów.")
                     return
-                print(f"\n=== Zbiorcze Podsumowanie Utylizacji Użytkowników ({len(results)} użytkowników) ===")
+                header_title = f"Najmniej Aktywnych Użytkowników (Bottom {len(results)})" if (args.bottom or order == "asc") else f"Zbiorcze Podsumowanie Utylizacji Użytkowników ({len(results)} użytkowników)"
+                print(f"\n=== {header_title} ===")
                 print(f"{'Identyfikator Użytkownika':<28} | {'Aktywne Dni':<11} | {'Zdarzenia':<9} | {'Zapytania':<9} | {'Obrazy':<7} | {'Deep Rsrch':<10} | {'Agenty':<7} | {'Wywoł. Autora':<13} | {'Wywoł. w Org':<13} | {'Tokeny':<9}")
                 print("-" * 168)
                 for r in results:

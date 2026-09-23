@@ -626,6 +626,54 @@ class GeminiEnterprise20TestSuite(unittest.TestCase):
         self.assertIn("author_agent_invocations", top_user)
         self.assertIn("org_agent_invocations", top_user)
 
+    def test_23_bottom_users_proposal_and_order(self):
+        """Test 23: Weryfikacja wyjściowej propozycji Bottom 10 i sortowania najmniej aktywnych użytkowników."""
+        self._require_live_gcp()
+
+        # 1. Sprawdzenie sortowania rosnącego (Bottom N) w warstwie serwisowej
+        bottom_summary = self.service.get_user_summary(order_by="asc", limit=10)
+        self.assertIsInstance(bottom_summary, list)
+        self.assertGreater(len(bottom_summary), 0)
+        if len(bottom_summary) >= 2:
+            self.assertLessEqual(
+                bottom_summary[0]["total_events"],
+                bottom_summary[-1]["total_events"],
+                "Pierwszy użytkownik w Bottom N powinien mieć <= zdarzeń niż ostatni."
+            )
+
+        # 2. Sprawdzenie narzędzia ADK z order_by='bottom' i limit=10
+        os.environ["PROJECT_ID"] = PROJECT_ID
+        os.environ["DATASET_ID"] = DATASET_ID
+        from agent.adk_telemetry_agent import get_user_summary as adk_summary, root_agent
+        raw_bottom = json.loads(adk_summary(order_by="bottom", limit=10))
+        self.assertEqual(raw_bottom.get("status"), "success")
+        self.assertLessEqual(len(raw_bottom.get("users", [])), 10)
+
+        # 3. Weryfikacja obecności wszystkich kolumn tabeli wymaganych dla Bottom 10
+        required_cols = [
+            "assistant_queries",
+            "deep_research_count",
+            "images_generated",
+            "agents_created",
+            "author_agent_sessions",
+            "org_agent_sessions",
+            "total_tokens",
+        ]
+        for u in raw_bottom.get("users", []):
+            for col in required_cols:
+                self.assertIn(col, u, f"Kolumna {col} musi być obecna w słowniku użytkownika dla tabeli.")
+
+        # 4. Weryfikacja instrukcji systemowej root_agent pod kątem wyjściowej propozycji Bottom 10
+        inst = root_agent.instruction
+        self.assertIn("BOTTOM 10", inst)
+        self.assertIn("Zapytania asystenta (czat)", inst)
+        self.assertIn("Zadań Deep Research", inst)
+        self.assertIn("Wygenerowane obrazy", inst)
+        self.assertIn("Utworzone agenty", inst)
+        self.assertIn("author_agent_sessions", inst)
+        self.assertIn("org_agent_sessions", inst)
+        self.assertIn("Konsumpcja tokenów", inst)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

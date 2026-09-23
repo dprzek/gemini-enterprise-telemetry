@@ -78,9 +78,12 @@ class TelemetryService:
             self.credentials.refresh(Request())
         return self.credentials.token
 
-    def get_user_summary(self, start_date=None, end_date=None, user_id=None):
+    def get_user_summary(self, start_date=None, end_date=None, user_id=None, order_by="desc", limit=None):
         """
         Query aggregate utilization per user across customizable time spans.
+        Supports sorting by activity level:
+        - order_by='desc': most active users (Top N)
+        - order_by='asc' (or 'bottom', 'least_active'): least active / performing users (Bottom N)
         """
         where_clauses = []
         if start_date:
@@ -91,6 +94,8 @@ class TelemetryService:
             where_clauses.append(f"LOWER(user_id) LIKE LOWER('%{user_id}%')")
 
         where_stmt = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+        direction = "ASC" if str(order_by).lower() in ("asc", "bottom", "least_active", "low") else "DESC"
+        limit_stmt = f"LIMIT {int(limit)}" if limit is not None else ""
 
         query = f"""
         SELECT
@@ -117,7 +122,8 @@ class TelemetryService:
         FROM `{self.project_id}.{self.dataset_id}.v_user_daily_utilization`
         {where_stmt}
         GROUP BY user_id
-        ORDER BY total_events DESC, assistant_queries DESC
+        ORDER BY total_events {direction}, assistant_queries {direction}, total_tokens {direction}
+        {limit_stmt}
         """
         job = self.bq_client.query(query)
         results = []
