@@ -450,4 +450,54 @@ Jeśli obiekt agenta został zserializowany w środowisku klienta (np. starym ob
    ./deploy.sh <ENGINE_ID> --recreate
    ```
 
+### Błąd Cloud Logging Sink: `table_invalid_schema: Cannot convert std::string to a record field ... query = 4`
+
+#### Objaw:
+Administrator projektu GCP otrzymuje powiadomienie e-mail:
+```text
+The following log sink in a project you own had errors while routing logs. Due to this error, logs are not being routed to the sink destination.
+Project ID: prj-gemini-rossmann-global
+Log Sink Name: gemini-enterprise-telemetry-sink
+Sink Destination: bigquery.googleapis.com/projects/.../datasets/gemini_enterprise_telemetry
+Error Code: table_invalid_schema
+Error Detail: Cannot convert std::string to a record field:optional .Msg_0_CLOUD_QUERY_TABLE.Msg_1_CLOUD_QUERY_TABLE_jsonpayload.Msg_15_CLOUD_QUERY_TABLE_jsonpayload_request.Msg_22_CLOUD_QUERY_TABLE_jsonpayload_request_query query = 4;
+```
+Routing logów ze zdarzeniami aktywności użytkowników do BigQuery zostaje wstrzymany.
+
+#### Diagnoza i Przyczyna Źródłowa:
+W wewnętrznej definicji protobuf usług Google Cloud Discovery Engine / Gemini Enterprise pole zapytania użytkownika ma sygnaturę:
+`optional std::string query = 4;`
+Oznacza to, że Cloud Logging przesyła zawartość tego pola jako czysty łańcuch znaków (`std::string`).
+Jeśli tabela BigQuery `discoveryengine_googleapis_com_gemini_enterprise_user_activity` została pierwotnie zainicjalizowana ze schematem zagnieżdżonym (`RECORD` ze strukturą `parts.text`), Cloud Logging Sink napotyka na konflikt typów (nie może zapisać typu string do kolumny typu struct/record) i odrzuca strumieniowanie z kodem `table_invalid_schema`.
+
+#### Rozwiązanie Zautomatyzowane (1 komenda – Self-Healing):
+W repozytorium dostępny jest dedykowany skrypt autonaprawczy:
+```bash
+python3 scripts/fix_user_activity_schema.py --project <PROJECT_ID>
+```
+Skrypt automatycznie:
+1. Sprawdza bieżący typ kolumny `query` w tabeli.
+2. Zabezpiecza kopię zapasową tabeli jako `..._bad_schema` (z obsługą ograniczenia bufora streamingowego BigQuery – jeśli `ALTER TABLE RENAME` jest zablokowane przez streaming buffer, wykonuje atomowy snapshot CTAS).
+3. Tworzy nową tabelę z poprawnym typem kolumny `query: STRING`.
+4. Rekompiluje widoki analityczne w BigQuery.
+5. (Opcjonalnie) Umożliwia natychmiastowe wsteczne zaingestowanie danych z ostatnich N dni (`--backfill-days 30`).
+
+#### Rozwiązanie Manualne w Konsoli BigQuery (SQL):
+Jeśli administrator woli wykonać operację bezpośrednio w konsoli BigQuery SQL Workspace:
+
+```sql
+-- Krok 1: Wykonanie snapshotu / kopii zapasowej dotychczasowej tabeli
+CREATE OR REPLACE TABLE `<PROJECT_ID>.gemini_enterprise_telemetry.discoveryengine_googleapis_com_gemini_enterprise_user_activity_bad_schema`
+AS SELECT * FROM `<PROJECT_ID>.gemini_enterprise_telemetry.discoveryengine_googleapis_com_gemini_enterprise_user_activity`;
+
+-- Krok 2: Usunięcie tabeli z niepoprawnym schematem
+DROP TABLE `<PROJECT_ID>.gemini_enterprise_telemetry.discoveryengine_googleapis_com_gemini_enterprise_user_activity`;
+```
+*(Uwaga: `ALTER TABLE ... RENAME TO ...` może zakończyć się błędem `Cannot rename ... because it has streaming data` jeśli do tabeli wpadały niedawno logi. Dlatego procedura CTAS + DROP jest w 100% niezawodna).*
+
+Po wykonaniu powyższego Cloud Logging natychmiast automatycznie utworzy tabelę z poprawnym schematem lub można uruchomić instalator:
+```bash
+python3 scripts/fix_user_activity_schema.py --project <PROJECT_ID>
+```
+
 

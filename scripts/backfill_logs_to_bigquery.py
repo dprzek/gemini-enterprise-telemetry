@@ -104,8 +104,70 @@ def parse_audit_entry(e):
         }
     }
 
-def init_streaming_tables(client, project_id, dataset_id):
-    """Inicjalizuje puste tabele strumieniowe i wsteczne zlewu logów, jeśli jeszcze nie istnieją."""
+def repair_user_activity_schema_if_needed(client, project_id, dataset_id, user_act_schema, force=False):
+    """Weryfikuje czy tabela discoveryengine_googleapis_com_gemini_enterprise_user_activity
+    posiada kolumnę jsonPayload.request.query o typie RECORD (błąd table_invalid_schema).
+    Jeśli tak (lub gdy force=True), zmienia nazwę tabeli na discoveryengine_googleapis_com_gemini_enterprise_user_activity_bad_schema
+    i tworzy nową tabelę z poprawnym typem STRING.
+    """
+    table_id = f"{project_id}.{dataset_id}.discoveryengine_googleapis_com_gemini_enterprise_user_activity"
+    try:
+        tbl = client.get_table(table_id)
+    except Exception:
+        # Tabela nie istnieje - zostanie utworzona ze świeżym schematem
+        return False
+
+    is_query_record = False
+    for f in tbl.schema:
+        if f.name == "jsonPayload" and f.fields:
+            for sub in f.fields:
+                if sub.name == "request" and sub.fields:
+                    for rsub in sub.fields:
+                        if rsub.name == "query" and rsub.field_type == "RECORD":
+                            is_query_record = True
+                            break
+
+    if not is_query_record and not force:
+        return False
+
+    print(f"[!] Wykryto niezgodność schematu w BigQuery dla tabeli: {table_id}")
+    print("    Pole 'jsonPayload.request.query' ma typ RECORD zamiast STRING (lub wymuszono naprawę).")
+    print("    Powoduje to błąd Cloud Logging Sink: table_invalid_schema (Cannot convert std::string to a record field).")
+    print("    Inicjalizacja procedury Self-Healing: migracja starej tabeli i odtworzenie poprawnego schematu...")
+
+    bad_table_name = "discoveryengine_googleapis_com_gemini_enterprise_user_activity_bad_schema"
+    try:
+        existing_tables = [t.table_id for t in client.list_tables(f"{project_id}.{dataset_id}")]
+        if bad_table_name in existing_tables:
+            import time
+            bad_table_name = f"discoveryengine_googleapis_com_gemini_enterprise_user_activity_bad_schema_{int(time.time())}"
+
+        # 1. Próba wykonania szybkiego RENAME
+        rename_sql = f"ALTER TABLE `{table_id}` RENAME TO `{bad_table_name}`"
+        try:
+            client.query(rename_sql).result()
+            print(f"    ✔ Zabezpieczono starą tabelę jako '{bad_table_name}'.")
+        except Exception as rename_err:
+            # BigQuery blokuje ALTER TABLE RENAME jeśli tabela posiada aktywny streaming buffer
+            # W takim przypadku wykonujemy kopię CTAS oraz bezpieczne usunięcie starej tabeli
+            print(f"    [*] ALTER TABLE RENAME powstrzymany przez bufor streamingowy ({rename_err}).")
+            print("    [*] Zabezpieczanie danych przez CTAS Snapshot i odtworzenie tabeli...")
+            copy_sql = f"CREATE OR REPLACE TABLE `{project_id}.{dataset_id}.{bad_table_name}` AS SELECT * FROM `{table_id}`"
+            client.query(copy_sql).result()
+            client.delete_table(table_id, not_found_ok=True)
+            print(f"    ✔ Zabezpieczono snapshot starej tabeli jako '{bad_table_name}' i usunięto uszkodzoną tabelę.")
+    except Exception as e:
+        print(f"    [!] Błąd podczas migracji uszkodzonej tabeli: {e}")
+        return False
+
+    create_partitioned_table(client, table_id, user_act_schema)
+    print("    ✔ Utworzono nową tabelę 'discoveryengine_googleapis_com_gemini_enterprise_user_activity' z typem query STRING.")
+    return True
+
+def init_streaming_tables(client, project_id, dataset_id, force_repair=False):
+    """Inicjalizuje puste tabele strumieniowe i wsteczne zlewu logów, jeśli jeszcze nie istnieją.
+    Automatycznie weryfikuje i naprawia niezgodności schematów (np. pole query typu RECORD -> STRING).
+    """
     # 1. Tabela aktywności użytkownika (strumień Logging)
     user_act_schema = [
         bigquery.SchemaField("logName", "STRING"),
@@ -156,11 +218,7 @@ def init_streaming_tables(client, project_id, dataset_id):
                         bigquery.SchemaField("agentid", "STRING"),
                     ]),
                 ]),
-                bigquery.SchemaField("query", "RECORD", fields=[
-                    bigquery.SchemaField("parts", "RECORD", mode="REPEATED", fields=[
-                        bigquery.SchemaField("text", "STRING"),
-                    ]),
-                ]),
+                bigquery.SchemaField("query", "STRING"),
             ]),
             bigquery.SchemaField("status", "RECORD", fields=[
                 bigquery.SchemaField("code", "INTEGER"),
@@ -168,6 +226,7 @@ def init_streaming_tables(client, project_id, dataset_id):
             ]),
         ]),
     ]
+    repair_user_activity_schema_if_needed(client, project_id, dataset_id, user_act_schema, force=force_repair)
     create_partitioned_table(client, f"{project_id}.{dataset_id}.discoveryengine_googleapis_com_gemini_enterprise_user_activity", user_act_schema)
 
     # 2. Tabela operacji wnioskowania GenAI (strumień Logging)
@@ -358,7 +417,17 @@ def run_backfill(client, project_id, dataset_id, days=30):
     print("✔ Wsteczna ingestja logów zakończona sukcesem!")
 
 if __name__ == "__main__":
-    p_id = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("GOOGLE_CLOUD_PROJECT")
+    import argparse
+    parser = argparse.ArgumentParser(description="Wsteczna ingestja logów Gemini Enterprise do BigQuery")
+    parser.add_argument("pos_project", nargs="?", default=None, help="Google Cloud Project ID (pozycyjny)")
+    parser.add_argument("pos_dataset", nargs="?", default=None, help="Dataset ID (pozycyjny)")
+    parser.add_argument("pos_days", nargs="?", type=int, default=None, help="Liczba dni (pozycyjny)")
+    parser.add_argument("--project", default=None, help="Google Cloud Project ID")
+    parser.add_argument("--dataset", default=None, help="Dataset ID")
+    parser.add_argument("--days", type=int, default=None, help="Liczba dni")
+    args = parser.parse_args()
+
+    p_id = args.project or args.pos_project or os.environ.get("GOOGLE_CLOUD_PROJECT")
     if not p_id:
         try:
             import subprocess
@@ -366,9 +435,11 @@ if __name__ == "__main__":
         except Exception:
             pass
     if not p_id:
-        print("Błąd: Nie podano identyfikatora projektu GCP. Użyj: python3 backfill_logs_to_bigquery.py <PROJECT_ID>")
+        print("Błąd: Nie podano identyfikatora projektu GCP. Użyj: python3 backfill_logs_to_bigquery.py --project <PROJECT_ID>")
         sys.exit(1)
-    d_id = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("DATASET_ID", "gemini_enterprise_telemetry")
-    d_days = int(sys.argv[3]) if len(sys.argv) > 3 else 30
+
+    d_id = args.dataset or args.pos_dataset or os.environ.get("DATASET_ID", "gemini_enterprise_telemetry")
+    d_days = args.days if args.days is not None else (args.pos_days if args.pos_days is not None else 30)
+
     bq_client = bigquery.Client(project=p_id)
     run_backfill(bq_client, p_id, d_id, d_days)

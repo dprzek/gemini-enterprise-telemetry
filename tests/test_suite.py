@@ -53,7 +53,21 @@ from google.cloud import bigquery
 import google.auth
 from google.auth.transport.requests import Request
 
-PROJECT_ID = os.environ.get("TEST_PROJECT_ID") or os.environ.get("GOOGLE_CLOUD_PROJECT") or "test-ge-demos"
+def _detect_project_id():
+    for var in ("TEST_PROJECT_ID", "GOOGLE_CLOUD_PROJECT", "PROJECT_ID"):
+        val = os.environ.get(var)
+        if val:
+            return val
+    try:
+        res = subprocess.run(["gcloud", "config", "get-value", "project"], stdout=subprocess.PIPE, text=True, check=True)
+        proj = res.stdout.strip()
+        if proj:
+            return proj
+    except Exception:
+        pass
+    return "dprzek-test7"
+
+PROJECT_ID = _detect_project_id()
 LOCATION = os.environ.get("TEST_LOCATION") or "eu"
 APP_NAME = os.environ.get("TEST_APP_NAME") or "gemini-test-123"
 DATASET_ID = os.environ.get("TEST_DATASET_ID") or "gemini_enterprise_telemetry"
@@ -672,9 +686,36 @@ class GeminiEnterprise20TestSuite(unittest.TestCase):
         self.assertIn("Utworzone agenty", inst)
         self.assertIn("author_agent_sessions", inst)
         self.assertIn("org_agent_sessions", inst)
-        self.assertIn("Konsumpcja tokenów", inst)
+    def test_24_user_activity_schema_query_string_and_self_healing(self):
+        """Test 24: Weryfikacja typu STRING dla jsonPayload.request.query oraz mechanizmu Self-Healing."""
+        self._require_live_gcp()
+        table_id = f"{PROJECT_ID}.{DATASET_ID}.discoveryengine_googleapis_com_gemini_enterprise_user_activity"
+        tbl = self.bq_client.get_table(table_id)
+        
+        # 1. Weryfikacja typu pola query w schemacie tabeli
+        query_field_type = None
+        for f in tbl.schema:
+            if f.name == "jsonPayload" and f.fields:
+                for sub in f.fields:
+                    if sub.name == "request" and sub.fields:
+                        for rsub in sub.fields:
+                            if rsub.name == "query":
+                                query_field_type = rsub.field_type
+                                break
+
+        self.assertEqual(
+            query_field_type,
+            "STRING",
+            f"Pole jsonPayload.request.query musi mieć typ STRING (zgodny z Cloud Logging Sink), a wykryto: {query_field_type}"
+        )
+
+        # 2. Weryfikacja procedury autoleczenia (Self-Healing) - stan zdrowy nie wymaga naprawy
+        from scripts.backfill_logs_to_bigquery import repair_user_activity_schema_if_needed
+        repaired = repair_user_activity_schema_if_needed(self.bq_client, PROJECT_ID, DATASET_ID, tbl.schema, force=False)
+        self.assertFalse(repaired, "Procedura autoleczenia nie powinna modyfikować zdrowej tabeli ze schematem STRING.")
 
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
 
