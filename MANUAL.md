@@ -52,16 +52,18 @@ Rozwiązanie natywnie integruje się z trzema kluczowymi obszarami obserwowalno�
 Gemini Enterprise umożliwia precyzyjne sterowanie instrumentacją telemetrii na poziomie **Silnika (Aplikacji asystenta)** oraz **Pojedynczego Agenta**:
 
 1. **Instrumentacja Śladów OpenTelemetry i Logów (`observabilityEnabled`)**:
-   - Rejestruje rozproszone spany wykonania, ścieżki wywołań, powiązania hierarchiczne oraz metryki operacyjne na poziomie agenta.
+   - Rejestruje rozproszone spany wykonania, ścieżki wywołań, kody błędów, czasy opóźnień (TTFT) oraz wolumeny tokenów (input, output, reasoning).
+   - **Nie rejestruje** treści promptów ani odpowiedzi użytkownika. W pełni wystarcza do zasilania potoku telemetrii i analityki adopcji!
 2. **Wrażliwe Logowanie Promptów i Odpowiedzi (`sensitiveLoggingEnabled`)**:
-   - Zapisuje pełną treść promptów wprowadzanych przez użytkowników oraz tekst generowany przez modele w Cloud Logging (wymaga włączonego `observabilityEnabled`).
+   - Zapisuje pełną treść promptów wprowadzanych przez użytkowników (`gen_ai.user.message`) oraz tekst wygenerowanych odpowiedzi (`gen_ai.choice`), w tym zacytowane fragmenty dokumentów z konektorów zewnętrznych (np. Microsoft 365, SharePoint, Google Drive).
+   - *Uwaga Compliance/AI Governance*: Zgodnie z dokumentacją Google Cloud, dane wrażliwe nie są odfiltrowywane (*„Sensitive data isn't filtered out of the audit logs”*). W środowiskach korporacyjnych zaleca się utrzymywanie tej flagi jako `false` (Privacy-by-Design), chyba że organizacja prowadzi formalny audyt treści.
 
 #### Włączenie przez Konsolę Google Cloud:
 - Przejdź do: **Gemini Enterprise > Configurations > Observability** (lub **Agents > [Nazwa Agenta] > Configuration**).
 - Włącz przełącznik: **Enable instrumentation of OpenTelemetry traces and logs**.
-- (Opcjonalnie) Włącz przełącznik: **Enable logging of prompt inputs and response outputs**.
+- (Opcjonalnie, tylko w celach audytu treści) Włącz przełącznik: **Enable logging of prompt inputs and response outputs**.
 
-#### Włączenie za pośrednictwem API REST:
+#### Włączenie za pośrednictwem API REST (Domyślny tryb Privacy-by-Design):
 ```bash
 curl -X PATCH \
   -H "Authorization: Bearer $(gcloud auth print-access-token)" \
@@ -71,7 +73,7 @@ curl -X PATCH \
   -d '{
     "observabilityConfig": {
       "observabilityEnabled": true,
-      "sensitiveLoggingEnabled": true
+      "sensitiveLoggingEnabled": false
     }
   }'
 ```
@@ -148,9 +150,9 @@ cd gemini-enterprise-telemetry
 
 > [!TIP]
 > **Co automatyzuje `deploy.sh` (lub `python3 deploy.py`)?**
-> 1. **Auto-konfiguracja obserwowalności**: Automatycznie włącza `observabilityEnabled: true` oraz `sensitiveLoggingEnabled: true` na silniku — **koniec z ręcznym cURL-em czy klikaniem w konsoli!**
+> 1. **Auto-konfiguracja obserwowalności (Privacy-by-Design)**: Automatycznie włącza `observabilityEnabled: true` oraz `sensitiveLoggingEnabled: false` na silniku — chroniąc dane pracowników i fragmenty dokumentów Microsoft 365, jednocześnie zbierając 100% metryk operacyjnych i adopcyjnych. Pełny audyt promptów można opcjonalnie włączyć flagą `--enable-sensitive-logging`.
 > 2. **Precyzyjne i elastyczne dopasowanie silnika**: Przyjmuje dokładny identyfikator silnika (`ENGINE_ID`, np. `ge-dprzek_1789915910154`) lub przyjazną nazwę. W projektach z wieloma silnikami chroni przed pomyłką i prezentuje listę dostępnych silników do wyboru.
-> 3. **Zlew Cloud Logging i uprawnienia**: Automatycznie zakłada zbiór danych BigQuery, zlew logów i nadaje uprawnienia `roles/bigquery.dataEditor`.
+> 3. **Zlew Cloud Logging i uprawnienia**: Automatycznie zakłada zbiór danych BigQuery w lokalizacji `EU`, zlew logów i nadaje uprawnienia `roles/bigquery.dataEditor`.
 > 4. **Wsteczna ingestja logów**: Uzupełnia historię z ostatnich 30 dni.
 > 5. **Analityka SQL i Dashboard**: Wdraża zdeduplikowane widoki SQL oraz tworzy dashboard w Cloud Monitoring.
 > 6. **Agent Telemetrii**: Tworzy i publikuje Agenta z uprawnieniami publicznymi (`ALL_USERS`).
@@ -161,14 +163,14 @@ cd gemini-enterprise-telemetry
 
 W środowiskach korporacyjnych wymagających zatwierdzania poszczególnych etapów, wykonaj poniższe kroki:
 
-### Krok 5.1: Włączenie Obserwowalności na Silniku
+### Krok 5.1: Włączenie Obserwowalności na Silniku (Privacy-by-Design)
 ```bash
 curl -X PATCH \
   -H "Authorization: Bearer $(gcloud auth print-access-token)" \
   -H "Content-Type: application/json" \
   -H "X-Goog-User-Project: <PROJECT_ID>" \
   "https://<LOCATION>-discoveryengine.googleapis.com/v1alpha/projects/<PROJECT_ID>/locations/<LOCATION>/collections/default_collection/engines/<ENGINE_ID>?updateMask=observabilityConfig" \
-  -d '{"observabilityConfig": {"observabilityEnabled": true, "sensitiveLoggingEnabled": true}}'
+  -d '{"observabilityConfig": {"observabilityEnabled": true, "sensitiveLoggingEnabled": false}}'
 ```
 
 ### Krok 5.2: Utworzenie Zbioru BigQuery i Zlewu Cloud Logging

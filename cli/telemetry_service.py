@@ -281,7 +281,7 @@ class TelemetryService:
                 "engine_id": self.engine_id,
                 "location": self.location,
                 "observability_enabled": True,
-                "sensitive_logging_enabled": True,
+                "sensitive_logging_enabled": False,
                 "error": str(e)
             }
 

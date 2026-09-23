@@ -19,9 +19,18 @@ cd gemini-enterprise-telemetry
 # przykład: ./deploy.sh ge-dprzek_1789915910154 --project ge-test-dprzek --location eu
 ./deploy.sh <GE_APP_ID - nie mylić z APP_NAME> --project <PROJECT_ID> --location eu
 
+# Opcjonalnie z pełnym audytem treści promptów (domyślnie wyłączone):
+./deploy.sh ge-dprzek_1789915910154 --enable-sensitive-logging
+
 # Wymuszenie ponownego wdrożenia Agenta (np. przy aktualizacji kodu):
 ./deploy.sh <GE_APP_ID - nie mylić z APP_NAME> --recreate
 ```
+
+> [!IMPORTANT]
+> **AI Governance, Ochrona Danych i Data Residency w EU**
+> - **Privacy-by-Design (Zero PII & ochrona M365)**: Domyślnie instalator konfiguruje silnik z `sensitiveLoggingEnabled: false`. Oznacza to, że pełna treść zapytań użytkowników, wygenerowanych odpowiedzi oraz zacytowanych dokumentów wewnętrznych (SharePoint, Microsoft 365, Google Drive) **nigdy nie trafia do Cloud Logging ani BigQuery**. Telemetria, metryki tokenów, opóźnienia i trendy adopcji opierają się wyłącznie na bezpiecznych spanach OpenTelemetry (`observabilityEnabled: true`). Pełny audyt promptów można opcjonalnie włączyć flagą `--enable-sensitive-logging`.
+> - **Nienaruszalność audytu projektu (`auditConfigs`)**: Skrypt nie modyfikuje polityk IAM projektu GCP i **nie włącza** kosztownych logów `DATA_READ` dla Discovery Engine.
+> - **Suwerenność danych (100% EU Data Residency)**: Przy parametrze `--location eu`, wszystkie zasoby (silnik Gemini w `eu`, zbiór BigQuery w `EU`, Vertex AI Reasoning Engine, model wnioskowania i bucket stagingowy w `europe-west1`) przetwarzają i przechowują dane **wyłącznie w granicach Unii Europejskiej**.
 
 > [!NOTE]
 > **Obsługa wielu silników w projekcie (wielość aplikacji)**
@@ -35,11 +44,11 @@ cd gemini-enterprise-telemetry
 
 > [!TIP]
 > **Co automatyzuje instalator?**
-> - Włącza `observabilityConfig` (OpenTelemetry + logowanie) w silniku Gemini.
-> - Tworzy zbiór danych BigQuery, zlew logów i nadaje wymagane uprawnienia IAM.
+> - Włącza `observabilityConfig` (OpenTelemetry w trybie Privacy-by-Design) w silniku Gemini.
+> - Tworzy zbiór danych BigQuery w lokalizacji `EU`, zlew logów i nadaje uprawnienia IAM.
 > - Przeprowadza idempotentny backfill historii i kompiluje zdeduplikowane widoki SQL.
 > - Tworzy dashboard operacyjny w Cloud Monitoring.
-> - Buduje i wdraża agenta ADK do Vertex AI Reasoning Engine oraz publikuje go w aplikacji (`ALL_USERS`).
+> - Buduje i wdraża agenta ADK do Vertex AI Reasoning Engine w regionie `europe-west1` oraz publikuje go w aplikacji (`ALL_USERS`).
 
 Szczegółowy podręcznik procedur wdrożeniowych krok po kroku znajduje się w [MANUAL.md](MANUAL.md).
 

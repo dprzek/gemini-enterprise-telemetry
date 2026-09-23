@@ -149,9 +149,10 @@ def ensure_required_apis(project_id):
     except Exception as e:
         print(f"    (Weryfikacja API: {e})")
 
-def enable_engine_observability(project_id, location, engine_id, token):
-    """Automatycznie włącza OpenTelemetry i logowanie promptów/odpowiedzi w silniku."""
-    print(f"--> [2/7] Konfiguracja obserwowalności silnika '{engine_id}'...")
+def enable_engine_observability(project_id, location, engine_id, token, enable_sensitive_logging=False):
+    """Automatycznie włącza OpenTelemetry w silniku z zachowaniem standardów AI Governance (Privacy-by-Design)."""
+    mode_label = "OpenTelemetry + Sensitive Logging" if enable_sensitive_logging else "OpenTelemetry (Privacy-by-Design / Zero PII)"
+    print(f"--> [2/7] Konfiguracja obserwowalności silnika '{engine_id}' [{mode_label}]...")
     api_host = f"{location}-discoveryengine.googleapis.com" if location != "global" else "discoveryengine.googleapis.com"
     engine_url = f"https://{api_host}/v1alpha/projects/{project_id}/locations/{location}/collections/default_collection/engines/{engine_id}"
     
@@ -161,20 +162,23 @@ def enable_engine_observability(project_id, location, engine_id, token):
         with urllib.request.urlopen(req) as resp:
             eng_data = json.loads(resp.read().decode())
             obs_cfg = eng_data.get("observabilityConfig", {})
-            if obs_cfg.get("observabilityEnabled") and obs_cfg.get("sensitiveLoggingEnabled"):
-                print("    ✔ Obserwowalność silnika (OpenTelemetry + Sensitive Logging) jest już aktywna.")
+            curr_obs = obs_cfg.get("observabilityEnabled", False)
+            curr_sens = obs_cfg.get("sensitiveLoggingEnabled", False)
+            if curr_obs and curr_sens == enable_sensitive_logging:
+                print(f"    ✔ Obserwowalność silnika ({mode_label}) jest już poprawnie skonfigurowana.")
                 return
     except Exception as e:
         print(f"    Nie udało się pobrać stanu silnika: {e}")
 
-    # 2. Włączenie obserwowalności przez PATCH
+    # 2. Włączenie / aktualizacja obserwowalności przez PATCH
     patch_url = f"{engine_url}?updateMask=observabilityConfig"
     patch_payload = {
         "observabilityConfig": {
             "observabilityEnabled": True,
-            "sensitiveLoggingEnabled": True
+            "sensitiveLoggingEnabled": enable_sensitive_logging
         }
     }
+    mode_text = "z pełnym logowaniem promptów (--enable-sensitive-logging)" if enable_sensitive_logging else "w trybie Privacy-First (bez rejestracji treści promptów i danych M365)"
     try:
         patch_req = urllib.request.Request(
             patch_url,
@@ -187,7 +191,7 @@ def enable_engine_observability(project_id, location, engine_id, token):
             method="PATCH"
         )
         with urllib.request.urlopen(patch_req) as resp:
-            print("    ✔ Pomyślnie włączono obserwowalność OpenTelemetry i logowanie w silniku!")
+            print(f"    ✔ Pomyślnie skonfigurowano obserwowalność silnika {mode_text}.")
     except urllib.error.HTTPError as e:
         err_msg = e.read().decode("utf-8")
         print(f"    ⚠️ Ostrzeżenie podczas konfiguracji obserwowalności: HTTP {e.code} - {err_msg}")
@@ -323,6 +327,8 @@ def main():
     parser.add_argument("--skip-backfill", action="store_true", help="Pomiń wsteczną ingestję logów")
     parser.add_argument("--reasoning-engine", default=None, help="Istniejący zasób Vertex AI Reasoning Engine do ponownego użycia")
     parser.add_argument("--recreate", action="store_true", help="Wymusza utworzenie nowego Reasoning Engine nawet jeśli istnieje stary")
+    parser.add_argument("--enable-sensitive-logging", action="store_true", default=False,
+                        help="Włącza pełne logowanie treści promptów i odpowiedzi w Cloud Logging (domyślnie wyłączone ze względów Governance AI / ochrony danych)")
     args = parser.parse_args()
 
     project_id = args.project or os.environ.get("GOOGLE_CLOUD_PROJECT") or get_default_project()
@@ -340,19 +346,21 @@ def main():
         sys.exit(1)
 
     match_info = f" (z dopasowania: '{engine_hint}')" if engine_hint and engine_hint != engine_id else ""
+    privacy_info = "Włączone (Pełny audyt promptów)" if args.enable_sensitive_logging else "Wyłączone (Privacy-by-Design / Zero PII & No M365 Logging)"
     print("======================================================================")
     print("Rozpoczęcie automatycznego wdrożenia potoku telemetrii Gemini Enterprise")
     print(f"  Projekt:      {project_id}")
     print(f"  Lokalizacja:  {location}")
     print(f"  Silnik (ID):  {engine_id}{match_info}")
     print(f"  Zbiór danych: {dataset_id}")
+    print(f"  Sensitive Log:{privacy_info}")
     print("======================================================================")
 
     # 1. Weryfikacja i aktywacja API
     ensure_required_apis(project_id)
 
-    # 2. Obserwowalność silnika (Auto-Enable)
-    enable_engine_observability(project_id, location, engine_id, token)
+    # 2. Obserwowalność silnika (Auto-Enable z AI Governance)
+    enable_engine_observability(project_id, location, engine_id, token, enable_sensitive_logging=args.enable_sensitive_logging)
 
     # 3. BigQuery i Zlew Cloud Logging
     bq_client = setup_bigquery_and_sink(project_id, location, dataset_id)

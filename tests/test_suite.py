@@ -325,6 +325,7 @@ class GeminiEnterprise20TestSuite(unittest.TestCase):
 
     def test_12_prompt_realtime_quotas_and_headroom(self):
         """Test 12: Poprawność odpowiedzi promptu o limity kwotowe (RPM, TPM, headroom)."""
+        self._require_live_gcp()
         os.environ["BIGQUERY_PROJECT"] = PROJECT_ID
         os.environ["BIGQUERY_DATASET"] = DATASET_ID
         from agent.adk_telemetry_agent import get_realtime_quotas
@@ -518,6 +519,27 @@ class GeminiEnterprise20TestSuite(unittest.TestCase):
                 # Jeśli silniki nie istnieją w danej lokalizacji, 404/403 z Discovery Engine jest dopuszczalne
                 self.assertIn(e.code, (200, 403, 404))
 
+    def test_21_privacy_by_design_observability_defaults(self):
+        """Test 21: Weryfikacja reguł AI Governance - domyślny tryb Privacy-by-Design (sensitiveLoggingEnabled: False)."""
+        import inspect
+        from deploy import enable_engine_observability
+        import subprocess
+
+        # 1. Sprawdzenie sygnatury funkcji
+        sig = inspect.signature(enable_engine_observability)
+        self.assertIn("enable_sensitive_logging", sig.parameters)
+        self.assertEqual(sig.parameters["enable_sensitive_logging"].default, False,
+                         "Domyślna wartość enable_sensitive_logging MUSI wynosić False (Privacy-by-Design).")
+
+        # 2. Sprawdzenie flagi CLI w deploy.py
+        help_output = subprocess.run(
+            [sys.executable, os.path.join(REPO_ROOT, "deploy.py"), "--help"],
+            capture_output=True, text=True, check=True
+        ).stdout
+        self.assertIn("--enable-sensitive-logging", help_output)
+        self.assertIn("Governance AI", help_output)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
