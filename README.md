@@ -19,16 +19,21 @@ cd gemini-enterprise-telemetry
 # przykład: ./deploy.sh ge-dprzek_1789915910154 --project ge-test-dprzek --location eu
 ./deploy.sh <GE_APP_ID - nie mylić z APP_NAME> --project <PROJECT_ID> --location eu
 
-# Opcjonalnie z pełnym audytem treści promptów (domyślnie wyłączone):
-./deploy.sh ge-dprzek_1789915910154 --enable-sensitive-logging
-
 # Wymuszenie ponownego wdrożenia Agenta (np. przy aktualizacji kodu):
 ./deploy.sh <GE_APP_ID - nie mylić z APP_NAME> --recreate
+
+# Opcjonalnie: zachowanie treści promptów w Cloud Logging (domyślnie odrzucane przez Exclusion Filter):
+./deploy.sh <GE_APP_ID> --keep-raw-prompts
+
+# Opcjonalnie: tryb w pełni anonimowy (Google zamaskuje UPN użytkowników do <elided>):
+./deploy.sh <GE_APP_ID> --disable-sensitive-logging
 ```
 
 > [!IMPORTANT]
 > **AI Governance, Ochrona Danych i Data Residency w EU**
-> - **Privacy-by-Design (Zero PII & ochrona M365)**: Domyślnie instalator konfiguruje silnik z `sensitiveLoggingEnabled: false`. Oznacza to, że pełna treść zapytań użytkowników, wygenerowanych odpowiedzi oraz zacytowanych dokumentów wewnętrznych (SharePoint, Microsoft 365, Google Drive) **nigdy nie trafia do Cloud Logging ani BigQuery**. Telemetria, metryki tokenów, opóźnienia i trendy adopcji opierają się wyłącznie na bezpiecznych spanach OpenTelemetry (`observabilityEnabled: true`). Pełny audyt promptów można opcjonalnie włączyć flagą `--enable-sensitive-logging`.
+> - **Enterprise Governance (Zero Prompt & Zero M365 Storage + Pełna atrybucja UPN)**: Domyślnie instalator konfiguruje silnik z `sensitiveLoggingEnabled: true` (co zapobiega maskowaniu przez Google tożsamości użytkowników do `"<elided>"` w logach aktywności), jednocześnie automatycznie konfigurując **Exclusion Filter** na zlewie `_Default` w Cloud Logging. Dzięki temu:
+>   - Treść promptów użytkowników (`gen_ai.user.message`) oraz odpowiedzi i fragmenty dokumentów wewnętrznych M365 / SharePoint / Drive (`gen_ai.choice`) **są natychmiast odrzucane (drop) na bramce Cloud Logging i NIGDY nie trafiają do BigQuery ani do magazynu logów**.
+>   - Jednocześnie telemetria, metryki tokenów, opóźnienia i aktywność użytkowników są precyzyjnie przypisywane do konkretnych kont UPN.
 > - **Nienaruszalność audytu projektu (`auditConfigs`)**: Skrypt nie modyfikuje polityk IAM projektu GCP i **nie włącza** kosztownych logów `DATA_READ` dla Discovery Engine.
 > - **Suwerenność danych (100% EU Data Residency)**: Przy parametrze `--location eu`, wszystkie zasoby (silnik Gemini w `eu`, zbiór BigQuery w `EU`, Vertex AI Reasoning Engine, model wnioskowania i bucket stagingowy w `europe-west1`) przetwarzają i przechowują dane **wyłącznie w granicach Unii Europejskiej**.
 
@@ -44,7 +49,8 @@ cd gemini-enterprise-telemetry
 
 > [!TIP]
 > **Co automatyzuje instalator?**
-> - Włącza `observabilityConfig` (OpenTelemetry w trybie Privacy-by-Design) w silniku Gemini.
+> - Włącza `observabilityConfig` w silniku Gemini z zachowaniem Enterprise Governance.
+> - Konfiguruje Exclusion Filter w Cloud Logging odrzucający surowe prompty i fragmenty M365.
 > - Tworzy zbiór danych BigQuery w lokalizacji `EU`, zlew logów i nadaje uprawnienia IAM.
 > - Przeprowadza idempotentny backfill historii i kompiluje zdeduplikowane widoki SQL.
 > - Tworzy dashboard operacyjny w Cloud Monitoring.

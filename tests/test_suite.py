@@ -520,24 +520,30 @@ class GeminiEnterprise20TestSuite(unittest.TestCase):
                 self.assertIn(e.code, (200, 403, 404))
 
     def test_21_privacy_by_design_observability_defaults(self):
-        """Test 21: Weryfikacja reguł AI Governance - domyślny tryb Privacy-by-Design (sensitiveLoggingEnabled: False)."""
+        """Test 21: Weryfikacja reguł AI Governance - Enterprise Governance (sensitiveLoggingEnabled: True + Exclusion Filter)."""
         import inspect
-        from deploy import enable_engine_observability
+        from deploy import enable_engine_observability, setup_governance_exclusion_filter
         import subprocess
 
-        # 1. Sprawdzenie sygnatury funkcji
+        # 1. Sprawdzenie sygnatury funkcji enable_engine_observability
         sig = inspect.signature(enable_engine_observability)
         self.assertIn("enable_sensitive_logging", sig.parameters)
-        self.assertEqual(sig.parameters["enable_sensitive_logging"].default, False,
-                         "Domyślna wartość enable_sensitive_logging MUSI wynosić False (Privacy-by-Design).")
+        self.assertEqual(sig.parameters["enable_sensitive_logging"].default, True,
+                         "Domyślna wartość enable_sensitive_logging powinna wynosić True (dla atrybucji tożsamości UPN).")
 
-        # 2. Sprawdzenie flagi CLI w deploy.py
+        # 2. Sprawdzenie sygnatury setup_governance_exclusion_filter
+        sig_ex = inspect.signature(setup_governance_exclusion_filter)
+        self.assertIn("project_id", sig_ex.parameters)
+        self.assertIn("token", sig_ex.parameters)
+
+        # 3. Sprawdzenie flag CLI w deploy.py
         help_output = subprocess.run(
             [sys.executable, os.path.join(REPO_ROOT, "deploy.py"), "--help"],
             capture_output=True, text=True, check=True
         ).stdout
-        self.assertIn("--enable-sensitive-logging", help_output)
-        self.assertIn("Governance AI", help_output)
+        self.assertIn("--disable-sensitive-logging", help_output)
+        self.assertIn("--keep-raw-prompts", help_output)
+        self.assertIn("Exclusion Filter", help_output)
 
 
 if __name__ == "__main__":

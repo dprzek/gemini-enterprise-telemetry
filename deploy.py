@@ -149,9 +149,15 @@ def ensure_required_apis(project_id):
     except Exception as e:
         print(f"    (Weryfikacja API: {e})")
 
-def enable_engine_observability(project_id, location, engine_id, token, enable_sensitive_logging=False):
-    """Automatycznie włącza OpenTelemetry w silniku z zachowaniem standardów AI Governance (Privacy-by-Design)."""
-    mode_label = "OpenTelemetry + Sensitive Logging" if enable_sensitive_logging else "OpenTelemetry (Privacy-by-Design / Zero PII)"
+def enable_engine_observability(project_id, location, engine_id, token, enable_sensitive_logging=True):
+    """Automatycznie włącza OpenTelemetry w silniku z zachowaniem standardów AI Governance.
+    
+    Włączenie sensitiveLoggingEnabled=True jest wymagane przez backend Discovery Engine,
+    aby tożsamość użytkownika (useriamprincipal / UPN) nie była maskowana jako '<elided>'
+    w logach aktywności. Ochronę treści promptów i fragmentów M365 zapewnia Exclusion Filter
+    na bramce Cloud Logging.
+    """
+    mode_label = "OpenTelemetry + Identity Attribution" if enable_sensitive_logging else "OpenTelemetry (Anonymized / <elided>)"
     print(f"--> [2/7] Konfiguracja obserwowalności silnika '{engine_id}' [{mode_label}]...")
     api_host = f"{location}-discoveryengine.googleapis.com" if location != "global" else "discoveryengine.googleapis.com"
     engine_url = f"https://{api_host}/v1alpha/projects/{project_id}/locations/{location}/collections/default_collection/engines/{engine_id}"
@@ -178,7 +184,7 @@ def enable_engine_observability(project_id, location, engine_id, token, enable_s
             "sensitiveLoggingEnabled": enable_sensitive_logging
         }
     }
-    mode_text = "z pełnym logowaniem promptów (--enable-sensitive-logging)" if enable_sensitive_logging else "w trybie Privacy-First (bez rejestracji treści promptów i danych M365)"
+    mode_text = "z atrybucją tożsamości użytkowników (UPN)" if enable_sensitive_logging else "w trybie anonimowym (<elided>)"
     try:
         patch_req = urllib.request.Request(
             patch_url,
@@ -195,6 +201,53 @@ def enable_engine_observability(project_id, location, engine_id, token, enable_s
     except urllib.error.HTTPError as e:
         err_msg = e.read().decode("utf-8")
         print(f"    ⚠️ Ostrzeżenie podczas konfiguracji obserwowalności: HTTP {e.code} - {err_msg}")
+
+def setup_governance_exclusion_filter(project_id, token, filter_name="drop-gemini-prompts-and-grounding"):
+    """Konfiguruje Enterprise Governance Exclusion Filter na zlewie _Default w Cloud Logging.
+    
+    Blokuje zapisywanie surowych treści promptów (gen_ai.user.message) oraz
+    odpowiedzi i fragmentów dokumentów M365 (gen_ai.choice) w Cloud Logging,
+    przy jednoczesnym zachowaniu tożsamości użytkowników i metryk operacyjnych.
+    """
+    print(f"--> [3a/7] Konfiguracja Enterprise Governance Exclusion Filter w Cloud Logging...")
+    url = f"https://logging.googleapis.com/v2/projects/{project_id}/sinks/_Default?updateMask=exclusions"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "X-Goog-User-Project": project_id,
+        "Content-Type": "application/json"
+    }
+    # 1. Pobranie istniejących wykluczeń
+    get_url = f"https://logging.googleapis.com/v2/projects/{project_id}/sinks/_Default"
+    exclusions = []
+    try:
+        req_get = urllib.request.Request(get_url, headers={"Authorization": f"Bearer {token}", "X-Goog-User-Project": project_id})
+        with urllib.request.urlopen(req_get) as resp:
+            data = json.loads(resp.read().decode())
+            exclusions = data.get("exclusions", [])
+    except Exception as e:
+        print(f"    (Pobieranie wykluczeń zlewu _Default: {e})")
+
+    filter_expr = 'logName=~"discoveryengine.googleapis.com%2Fgen_ai.user.message" OR logName=~"discoveryengine.googleapis.com%2Fgen_ai.choice"'
+    existing = next((x for x in exclusions if x.get("name") == filter_name), None)
+    if existing and existing.get("filter") == filter_expr and not existing.get("disabled", False):
+        print(f"    ✔ Exclusion Filter '{filter_name}' w Cloud Logging jest już aktywny.")
+        return
+
+    new_exclusions = [x for x in exclusions if x.get("name") != filter_name]
+    new_exclusions.append({
+        "name": filter_name,
+        "description": "Enterprise Governance: Drop raw user prompts and M365 grounding responses",
+        "filter": filter_expr,
+        "disabled": False
+    })
+    payload = {"exclusions": new_exclusions}
+    try:
+        patch_req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="PATCH")
+        with urllib.request.urlopen(patch_req) as resp:
+            print(f"    ✔ Skonfigurowano Exclusion Filter '{filter_name}' na zlewie _Default (0 promptów i 0 M365 w Cloud Logging).")
+    except urllib.error.HTTPError as e:
+        err = e.read().decode("utf-8")
+        print(f"    ⚠️ Ostrzeżenie podczas konfiguracji Exclusion Filter: HTTP {e.code} - {err}")
 
 def setup_bigquery_and_sink(project_id, location, dataset_id, sink_name="gemini-enterprise-telemetry-sink"):
     """Tworzy zbiór BigQuery, zlew Cloud Logging oraz nadaje uprawnienia kontu serwisowemu."""
@@ -327,8 +380,12 @@ def main():
     parser.add_argument("--skip-backfill", action="store_true", help="Pomiń wsteczną ingestję logów")
     parser.add_argument("--reasoning-engine", default=None, help="Istniejący zasób Vertex AI Reasoning Engine do ponownego użycia")
     parser.add_argument("--recreate", action="store_true", help="Wymusza utworzenie nowego Reasoning Engine nawet jeśli istnieje stary")
-    parser.add_argument("--enable-sensitive-logging", action="store_true", default=False,
-                        help="Włącza pełne logowanie treści promptów i odpowiedzi w Cloud Logging (domyślnie wyłączone ze względów Governance AI / ochrony danych)")
+    parser.add_argument("--disable-sensitive-logging", action="store_true", default=False,
+                        help="Wyłącza flagę sensitiveLoggingEnabled na silniku (uwaga: Google zamaskuje UPN użytkowników do <elided>)")
+    parser.add_argument("--keep-raw-prompts", action="store_true", default=False,
+                        help="Wyłącza Exclusion Filter w Cloud Logging, zachowując surowe treści promptów i fragmenty M365 w bucketcie _Default")
+    parser.add_argument("--enable-sensitive-logging", action="store_true", default=True,
+                        help="Włącza przypisywanie tożsamości w obserwowalności silnika (domyślnie włączone w połączeniu z Exclusion Filter)")
     args = parser.parse_args()
 
     project_id = args.project or os.environ.get("GOOGLE_CLOUD_PROJECT") or get_default_project()
@@ -345,25 +402,37 @@ def main():
         print("Błąd: Nie określono lub nie znaleziono silnika Gemini Enterprise. Podaj identyfikator silnika: ./deploy.sh <ENGINE_ID> lub opcję --engine <ENGINE_ID>.")
         sys.exit(1)
 
+    enable_sensitive = not args.disable_sensitive_logging
+    apply_exclusion = not args.keep_raw_prompts
     match_info = f" (z dopasowania: '{engine_hint}')" if engine_hint and engine_hint != engine_id else ""
-    privacy_info = "Włączone (Pełny audyt promptów)" if args.enable_sensitive_logging else "Wyłączone (Privacy-by-Design / Zero PII & No M365 Logging)"
+    if enable_sensitive and apply_exclusion:
+        privacy_info = "Enterprise Governance (Identity Attribution + Exclusion Filter: 0 promptów & 0 M365)"
+    elif enable_sensitive:
+        privacy_info = "Pełny audyt promptów (bez Exclusion Filter w Cloud Logging)"
+    else:
+        privacy_info = "Anonimowy / Zero PII (sensitiveLoggingEnabled: false, UPN: <elided>)"
+
     print("======================================================================")
     print("Rozpoczęcie automatycznego wdrożenia potoku telemetrii Gemini Enterprise")
     print(f"  Projekt:      {project_id}")
     print(f"  Lokalizacja:  {location}")
     print(f"  Silnik (ID):  {engine_id}{match_info}")
     print(f"  Zbiór danych: {dataset_id}")
-    print(f"  Sensitive Log:{privacy_info}")
+    print(f"  Governance:   {privacy_info}")
     print("======================================================================")
 
     # 1. Weryfikacja i aktywacja API
     ensure_required_apis(project_id)
 
     # 2. Obserwowalność silnika (Auto-Enable z AI Governance)
-    enable_engine_observability(project_id, location, engine_id, token, enable_sensitive_logging=args.enable_sensitive_logging)
+    enable_engine_observability(project_id, location, engine_id, token, enable_sensitive_logging=enable_sensitive)
 
     # 3. BigQuery i Zlew Cloud Logging
     bq_client = setup_bigquery_and_sink(project_id, location, dataset_id)
+
+    # 3a. Enterprise Governance: Exclusion Filter w Cloud Logging
+    if apply_exclusion:
+        setup_governance_exclusion_filter(project_id, token)
 
     # 4. Wsteczna ingestja logów (Backfill)
     if not args.skip_backfill:
