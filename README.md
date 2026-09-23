@@ -93,6 +93,7 @@ Agent telemetrii (`Gemini Enterprise Telemetry & Adoption Agent`) korzysta z dyn
 | **Deep Research** | Unikalne sesje wieloetapowego badania rynku/wiedzy | BigQuery (`agents/deep_research`) |
 | **Generowanie obrazów** | Liczba wygenerowanych grafik (modele graficzne) | BigQuery (`is_image_generation`) |
 | **Tworzenie agentów** | Liczba utworzonych i edytowanych agentów customowych | Cloud Audit Logs (`CreateAgent`) |
+| **Wywołania autorskich agentów** | Wywołania i sesje agentów autora: własne (`author_agent_*`) oraz w skali organizacji (`org_agent_*`) | BigQuery (`v_author_agent_usage`) |
 | **Konsumpcja tokenów** | Tokeny wejściowe (prompt), wyjściowe i buforowane (cache) | BigQuery (`gen_ai_client_inference`) |
 | **Adopcja UX** | Wskaźniki DAU / WAU / MAU, retencja użytkowników | BigQuery (`v_daily_adoption`) |
 | **Limity kwotowe** | Zapytania, agenty, deep research, WTU developerów, storage | Cloud Monitoring (`quota/*`) |
@@ -105,7 +106,7 @@ Agent telemetrii (`Gemini Enterprise Telemetry & Adoption Agent`) korzysta z dyn
 ```
 [Gemini Enterprise Engine] (OpenTelemetry + Audit Logs)
            │
-           ├─► Cloud Logging Sink ──► BigQuery (Partycjonowane tabele & 6 widoków SQL)
+           ├─► Cloud Logging Sink ──► BigQuery (Partycjonowane tabele & 7 widoków SQL)
            ├─► Cloud Monitoring   ──► Quotas API, TTFT, Sesje & Dashboard
            │
            └─► Vertex AI Reasoning Engine (ADK Agent: gemini-2.5-flash)
@@ -122,8 +123,11 @@ Agent telemetrii (`Gemini Enterprise Telemetry & Adoption Agent`) korzysta z dyn
 
 ## 🔍 Widoki analityczne w BigQuery (`gemini_enterprise_telemetry`)
 
-- **`v_user_daily_utilization`** — Dzienny profil utylizacji per użytkownik (zapytania, obrazy, badania, agenty, błędy, tokeny wejścia/wyjścia/cache).
-- **`v_daily_adoption`** — Globalne trendy organizacji: DAU, łączna liczba akcji, zapytań, tokenów i unikalnych użytkowników.
+- **`v_user_daily_utilization`** — Dzienny profil utylizacji per użytkownik (zapytania, obrazy, badania, agenty, wywołania autorskich agentów, błędy, tokeny wejścia/wyjścia/cache).
+- **`v_author_agent_usage`** — Wywołania agentów stworzonych przez danego użytkownika w dwóch ujęciach:
+  1. **Self-usage (autor)**: ile razy autor rozmawiał ze swoimi agentami (`author_agent_invocations`) i w ilu dyskusjach/sesjach (`author_agent_sessions`).
+  2. **Org-wide (cała organizacja)**: łączna liczba wywołań (`org_agent_invocations`), dyskusji/sesji (`org_agent_sessions`) oraz unikalnych użytkowników (`org_agent_unique_callers`).
+- **`v_daily_adoption`** — Globalne trendy organizacji: DAU, łączna liczba akcji, zapytań, wywołań customowych agentów, tokenów i unikalnych użytkowników.
 - **`v_user_summary`** — Zagregowane statystyki całokształtu aktywności per użytkownik (do rankingów i audytu).
 - **`v_feature_usage`** — Wykorzystanie poszczególnych modułów (Czat, Deep Research, Modele graficzne, Agent Designer).
 - **`v_observability_traces`** — Rozproszone ślady OpenTelemetry, korelacja spanów i czasy odpowiedzi.
@@ -157,7 +161,7 @@ gemini-enterprise-telemetry/
 ├── requirements.txt            # Precyzyjne zależności wykonawcze środowiska
 ├── MANUAL.md                   # Podręcznik wdrożeniowy dla administratorów
 ├── bigquery/
-│   └── telemetry_views.sql     # 6 analitycznych widoków SQL
+│   └── telemetry_views.sql     # 7 analitycznych widoków SQL (w tym v_author_agent_usage)
 ├── agent/
 │   ├── adk_telemetry_agent.py  # Kod Agenta ADK i definicje narzędzi
 │   └── deploy_adk_agent.py     # Wdrożenie do Vertex AI Reasoning Engine (z health-checkiem)

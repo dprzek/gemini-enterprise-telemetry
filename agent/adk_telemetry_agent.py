@@ -83,6 +83,11 @@ def get_user_daily_utilization(user_email: str, days: int = 14) -> str:
         agent_updates,
         ui_page_views,
         failed_requests,
+        author_agent_invocations,
+        author_agent_sessions,
+        org_agent_invocations,
+        org_agent_sessions,
+        org_agent_unique_callers,
         input_tokens,
         output_tokens,
         cached_tokens,
@@ -150,6 +155,11 @@ def get_user_summary(user_email: str = "") -> str:
         SUM(agent_updates) AS agent_updates,
         SUM(ui_page_views) AS ui_page_views,
         SUM(failed_requests) AS failed_requests,
+        SUM(author_agent_invocations) AS author_agent_invocations,
+        SUM(author_agent_sessions) AS author_agent_sessions,
+        SUM(org_agent_invocations) AS org_agent_invocations,
+        SUM(org_agent_sessions) AS org_agent_sessions,
+        MAX(org_agent_unique_callers) AS org_agent_unique_callers,
         SUM(input_tokens) AS input_tokens,
         SUM(output_tokens) AS output_tokens,
         SUM(total_tokens) AS total_tokens,
@@ -178,6 +188,11 @@ def get_user_summary(user_email: str = "") -> str:
                     "agent_updates": 0,
                     "ui_page_views": 0,
                     "failed_requests": 0,
+                    "author_agent_invocations": 0,
+                    "author_agent_sessions": 0,
+                    "org_agent_invocations": 0,
+                    "org_agent_sessions": 0,
+                    "org_agent_unique_callers": 0,
                     "input_tokens": 0,
                     "output_tokens": 0,
                     "total_tokens": 0,
@@ -223,6 +238,7 @@ def get_daily_adoption(days: int = 30) -> str:
         total_deep_research_queries,
         total_images_generated,
         total_agents_created,
+        total_custom_agent_invocations,
         total_tokens_burned
     FROM `{project_id}.{dataset_id}.v_daily_adoption`
     WHERE activity_date >= DATE_SUB(CURRENT_DATE(), INTERVAL {int(days)} DAY)
@@ -379,6 +395,8 @@ INTERPRETACJA I PREZENTACJA METRYK:
 - `images_generated` (Wygenerowane Obrazy): Zlicza obrazy i grafiki wygenerowane przez użytkownika za pomocą modeli graficznych w asystencie Gemini Enterprise.
 - `deep_research_count` (Liczba Deep Research): Reprezentuje unikalne, udane sesje badawcze. Jeśli zapytanie natrafiło na błąd sieciowy platformy i wymagało ponowienia ("Retry"), jest to wciąż 1 sesja badawcza, a nieudane wywołanie widoczne jest w polu `failed_requests`.
 - `agents_created` (Utworzone Agenty): Zlicza wyłącznie niestandardowe (customowe) agenty utworzone przez danego użytkownika w Agent Designerze (wykluczając agentów systemowych wbudowanych w silnik, np. domyślnego 'deep_research').
+- `author_agent_invocations` i `author_agent_sessions` (Wywołania przez Autora): Liczba wywołań (pojedynczych zapytań/tur) oraz unikalnych wątków/dyskusji (sesji), w których dany użytkownik (autor) rozmawiał ze stworzonymi przez siebie agentami.
+- `org_agent_invocations`, `org_agent_sessions` i `org_agent_unique_callers` (Wywołania w Organizacji): Łączna liczba wywołań i dyskusji (sesji) z agentami danego autora w całej firmie (autor + inni uprawnieni pracownicy) oraz liczba unikalnych pracowników korzystających z tych agentów.
 - `agent_updates`: Zlicza edycje i aktualizacje konfiguracji agentów.
 - `ui_page_views`: Odsłony stron i nawigacja w aplikacji (np. przeglądanie galerii agentów, dashboardu czy widoku badań).
 - `failed_requests`: Błędy techniczne platformy (np. błąd 500 / kod 13 wymagający wciśnięcia przycisku "Retry").

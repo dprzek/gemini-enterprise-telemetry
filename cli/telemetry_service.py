@@ -104,6 +104,11 @@ class TelemetryService:
             SUM(agent_updates) AS agent_updates,
             SUM(ui_page_views) AS ui_page_views,
             SUM(failed_requests) AS failed_requests,
+            SUM(author_agent_invocations) AS author_agent_invocations,
+            SUM(author_agent_sessions) AS author_agent_sessions,
+            SUM(org_agent_invocations) AS org_agent_invocations,
+            SUM(org_agent_sessions) AS org_agent_sessions,
+            MAX(org_agent_unique_callers) AS org_agent_unique_callers,
             SUM(input_tokens) AS input_tokens,
             SUM(output_tokens) AS output_tokens,
             SUM(total_tokens) AS total_tokens,
@@ -128,6 +133,11 @@ class TelemetryService:
                 "agent_updates": row.agent_updates,
                 "ui_page_views": row.ui_page_views,
                 "failed_requests": row.failed_requests,
+                "author_agent_invocations": row.author_agent_invocations,
+                "author_agent_sessions": row.author_agent_sessions,
+                "org_agent_invocations": row.org_agent_invocations,
+                "org_agent_sessions": row.org_agent_sessions,
+                "org_agent_unique_callers": row.org_agent_unique_callers,
                 "input_tokens": row.input_tokens,
                 "output_tokens": row.output_tokens,
                 "total_tokens": row.total_tokens,
@@ -163,6 +173,11 @@ class TelemetryService:
             agent_updates,
             ui_page_views,
             failed_requests,
+            author_agent_invocations,
+            author_agent_sessions,
+            org_agent_invocations,
+            org_agent_sessions,
+            org_agent_unique_callers,
             input_tokens,
             output_tokens,
             total_tokens,
@@ -186,6 +201,11 @@ class TelemetryService:
                 "agent_updates": row.agent_updates,
                 "ui_page_views": row.ui_page_views,
                 "failed_requests": row.failed_requests,
+                "author_agent_invocations": row.author_agent_invocations,
+                "author_agent_sessions": row.author_agent_sessions,
+                "org_agent_invocations": row.org_agent_invocations,
+                "org_agent_sessions": row.org_agent_sessions,
+                "org_agent_unique_callers": row.org_agent_unique_callers,
                 "input_tokens": row.input_tokens,
                 "output_tokens": row.output_tokens,
                 "total_tokens": row.total_tokens,
@@ -209,6 +229,7 @@ class TelemetryService:
             total_deep_research_queries,
             total_images_generated,
             total_agents_created,
+            total_custom_agent_invocations,
             total_tokens_burned
         FROM `{self.project_id}.{self.dataset_id}.v_daily_adoption`
         WHERE activity_date >= '{cutoff_date}'
@@ -225,6 +246,7 @@ class TelemetryService:
                 "total_deep_research_queries": row.total_deep_research_queries,
                 "total_images_generated": row.total_images_generated,
                 "total_agents_created": row.total_agents_created,
+                "total_custom_agent_invocations": row.total_custom_agent_invocations,
                 "total_tokens_burned": row.total_tokens_burned,
             })
         return results
@@ -497,19 +519,23 @@ class TelemetryService:
         md.append("")
 
         md.append("## 2. Podsumowanie per Użytkownik (Zagregowane)")
-        md.append("| Identyfikator Użytkownika | Aktywne Dni | Zdarzenia | Zapytania Asystenta | Deep Research | Utworzone Agenty | Zużyte Tokeny | Pierwsza Aktywność | Ostatnia Aktywność |")
-        md.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
+        md.append("| Identyfikator Użytkownika | Aktywne Dni | Zdarzenia | Zapytania Asystenta | Deep Research | Utworzone Agenty | Wywołania Autora (zapyt./sesje) | Wywołania w Org (zapyt./sesje/userzy) | Zużyte Tokeny | Pierwsza Aktywność | Ostatnia Aktywność |")
+        md.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
         for u in users:
             first_seen = u["first_active"][:10] if u["first_active"] else "Brak danych"
             last_seen = u["last_active"][:10] if u["last_active"] else "Brak danych"
-            md.append(f"| `{u['user_id']}` | {u['active_days']} | {u['total_events']} | {u['assistant_queries']} | {u['deep_research_count']} | {u['agents_created']} | {u['total_tokens']:,} | {first_seen} | {last_seen} |")
+            author_call = f"{u.get('author_agent_invocations', 0)} ({u.get('author_agent_sessions', 0)})"
+            org_call = f"{u.get('org_agent_invocations', 0)} ({u.get('org_agent_sessions', 0)} / {u.get('org_agent_unique_callers', 0)})"
+            md.append(f"| `{u['user_id']}` | {u['active_days']} | {u['total_events']} | {u['assistant_queries']} | {u['deep_research_count']} | {u['agents_created']} | {author_call} | {org_call} | {u['total_tokens']:,} | {first_seen} | {last_seen} |")
         md.append("")
 
         md.append("## 3. Szczegółowe Rozbicie Utylizacji na Dni (Day-by-Day User Breakdown)")
-        md.append("| Data | Identyfikator Użytkownika | Zdarzenia | Zapytania Asystenta | Deep Research | Utworzone Agenty | Zużyte Tokeny |")
-        md.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
+        md.append("| Data | Identyfikator Użytkownika | Zdarzenia | Zapytania Asystenta | Deep Research | Utworzone Agenty | Wywołania Autora | Wywołania w Org | Zużyte Tokeny |")
+        md.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
         for d in daily_breakdown:
-            md.append(f"| {d['activity_date']} | `{d['user_id']}` | {d['total_events']} | {d['assistant_queries']} | {d['deep_research_count']} | {d['agents_created']} | {d['total_tokens']:,} |")
+            author_call = f"{d.get('author_agent_invocations', 0)} ({d.get('author_agent_sessions', 0)})"
+            org_call = f"{d.get('org_agent_invocations', 0)} ({d.get('org_agent_sessions', 0)} / {d.get('org_agent_unique_callers', 0)})"
+            md.append(f"| {d['activity_date']} | `{d['user_id']}` | {d['total_events']} | {d['assistant_queries']} | {d['deep_research_count']} | {d['agents_created']} | {author_call} | {org_call} | {d['total_tokens']:,} |")
         md.append("")
 
         md.append("## 4. Metryki Obserwowalności i Działania Platformy")

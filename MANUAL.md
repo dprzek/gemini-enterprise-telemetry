@@ -21,8 +21,9 @@ Niniejszy podręcznik zawiera kompletne instrukcje wdrożenia, konfiguracji i ek
            Zbiór Danych BigQuery                                      │
            (gemini_enterprise_telemetry)                              │
            - Tabele partycjonowane i klastrowane                      │
-           - 6 Widoków Analitycznych:                                 │
+           - 7 Widoków Analitycznych:                                 │
              * v_user_daily_utilization (rozbicie dzienne per user)   │
+             * v_author_agent_usage (wywołania agentów autorskich)   │
              * v_observability_traces (ślady i spany OpenTelemetry)   │
              * v_user_summary (statystyki per user od początku)       │
              * v_daily_adoption (trendy DAU/WAU/MAU)                  │
@@ -270,21 +271,25 @@ Czas (UTC)           | Identyfikator Śladu (Trace ID)     | Metoda         | U�
 2026-09-18 11:31:08  | bd5b4d06073dd350c3cbe37912532b4c   | StreamAssist   | user@example.com           | SUCCEEDED
 ```
 
-#### 2. Dzienna Utylizacja Konkretnego Użytkownika:
+#### 2. Raport Utylizacji Użytkowników i Wywołań Autorskich Agentów:
 ```bash
-python3 cli/telemetry_cli.py utilization --daily --user user@example.com
+# Zbiorcze zestawienie wszystkich użytkowników wraz ze statystykami autorskich agentów:
+python3 cli/telemetry_cli.py utilization
+
+# Szczegółowa dzienna utylizacja konkretnego pracownika:
+python3 cli/telemetry_cli.py utilization --daily --user admin@dprzek.altostrat.com
 ```
-*Przykładowy wynik:*
+*Przykładowy wynik (zestawienie zbiorcze):*
 ```text
-=== Raport Dziennej Utylizacji Użytkownika (5 wpisów dziennych) ===
-Data         | Identyfikator Użytkownika    | Zdarzenia | Zapytania | Deep Rsrch | Agenty  | Tokeny    
-------------------------------------------------------------------------------------------------
-2026-09-19   | user@example.com             | 8         | 5         | 0          | 2       | 39,643    
-2026-09-18   | user@example.com             | 4         | 2         | 0          | 2       | 16,840    
-2026-09-15   | user@example.com             | 3         | 2         | 1          | 0       | 28,150    
-2026-09-12   | user@example.com             | 4         | 3         | 0          | 1       | 23,920    
-2026-09-08   | user@example.com             | 2         | 2         | 0          | 0       | 15,410    
+=== Podsumowanie Aktywności Użytkowników Gemini Enterprise ===
+Identyfikator Użytkownika     | Zdarz. | Zapyt. | Deep Rsrch | Obrazy | Agenty | Wywoł. Autora | Wywoł. w Org | Tokeny 
+-------------------------------------------------------------------------------------------------------------------------
+admin@dprzek.altostrat.com    | 24     | 16     | 0          | 0      | 2      | 6 (2)         | 6 (2 / 1)    | 12,450 
+damian.przekop@gmail.com      | 3      | 0      | 0          | 0      | 1      | 0 (0)         | 0 (0 / 0)    | 0      
 ```
+*Opis nowych kolumn autorskich agentów:*
+- **Wywoł. Autora (`author_agent_*`)**: Wywołania przez samego autora stworzonych przez niego agentów w formacie: `zapytania (sesje)`.
+- **Wywoł. w Org (`org_agent_*`)**: Całkowite wywołania tych agentów w całej organizacji w formacie: `zapytania (sesje / unikalni użytkownicy)`.
 
 #### 3. Trendy Adopcji w Organizacji (DAU):
 ```bash
@@ -327,7 +332,19 @@ SELECT
   total_tokens
 FROM `<PROJECT_ID>.gemini_enterprise_telemetry.v_user_daily_utilization`
 WHERE activity_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 14 DAY)
-ORDER BY activity_date DESC, total_events DESC;
+```
+
+#### 3. Zapytanie o Wywołania Autorskich Agentów (Self vs. Org):
+```sql
+SELECT
+  creator_user_id,
+  author_agent_invocations,
+  author_agent_sessions,
+  org_agent_invocations,
+  org_agent_sessions,
+  org_agent_unique_callers
+FROM `<PROJECT_ID>.gemini_enterprise_telemetry.v_author_agent_usage`
+ORDER BY org_agent_invocations DESC;
 ```
 
 ---
@@ -348,50 +365,64 @@ Poniższa tabela odzwierciedla oficjalne limity kwotowe Google Cloud dla edycji 
 
 ---
 
-## 8. Procedura Walidacji i Pakiet 15 Scenariuszy Testowych
+## 8. Procedura Walidacji i Pakiet 22 Scenariuszy Testowych
 
-Po wdrożeniu potoku i agenta w środowisku klienta, administrator może zweryfikować całe środowisko uruchamiając zautomatyzowany pakiet 15 testów:
+Po wdrożeniu potoku i agenta w środowisku klienta, administrator może zweryfikować całe środowisko uruchamiając zautomatyzowany pakiet 22 testów:
 
 ```bash
-python3 -m unittest discover -s tests -p "test_suite.py" -v
+python3 tests/test_suite.py
 ```
 
-### Zestawienie 15 Scenariuszy Testowych:
+### Zestawienie 22 Scenariuszy Testowych:
 
-1. **Test 1: Syntaktyka i Czystość Kodu Pythona (Multi-Tenant Hygiene)**
+1. **Test 01: Syntaktyka i Czystość Kodu Pythona (Multi-Tenant Hygiene)**
    - Weryfikuje kompilację plików Pythona i brak hardkodowanych ID projektów / klientów.
-2. **Test 2: Rozpoznawanie Silnika i Odporność na Błędy Nazewnictwa**
-   - Sprawdza dynamiczne rozwiązywanie silników Discovery Engine na podstawie nazwy lub prefiksu.
-3. **Test 3: Automatyczna Konfiguracja Uprawnień IAM Konta Reasoning Engine**
-   - Bada czy konto `service-{PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com` posiada role `bigquery.jobUser`, `monitoring.viewer` i dostęp `READER` do tabel BigQuery.
-4. **Test 4: Idempotentność i Schemat Tabel BigQuery (Partycjonowanie po dacie)**
-   - Potwierdza partycjonowanie dzienne po polu `timestamp` w tabelach telemetrii.
-5. **Test 5: Idempotentna Wsteczna Ingestja (Backfill Parsing & Idempotency)**
-   - Sprawdza parser zdarzeń audytowych, aktywności użytkowników oraz operacji inferencji tokenów.
-6. **Test 6: Kompilacja i Parametryzacja Widoków BigQuery (SQL DDL Dry-Run)**
-   - Potwierdza poprawność zapytań DDL 6 widoków analitycznych SQL.
-7. **Test 7: Spójność Matematyczna Metryk (Niezmienniki Sum Zdarzeń i Tokenów)**
-   - Weryfikuje reguły spójności: $\text{Zdarzenia} \ge \text{Zapytania} + \text{Deep Research} + \text{Agenty}$ oraz $\text{Tokeny} = \text{Input} + \text{Output}$.
-8. **Test 8: Precyzja Przypisywania Tokenów po Śladach OTel (Zero Double-Counting)**
-   - Potwierdza brak duplikatów i iloczynu kartezjańskiego w korelacji logów.
-9. **Test 9: Rygorystyczna Separacja Funkcjonalności (Deep Research vs Zapytania)**
-   - Weryfikuje prawidłową kategoryzację modułów Gemini Enterprise.
-10. **Test 10: Integracja Metryk Cloud Monitoring i Tras OpenTelemetry**
-    - Potwierdza pobieranie limitów kwotowych i okien śladów OpenTelemetry.
-11. **Test 11: Walidacja Agenta ADK (`google.adk.agents.Agent`) i Serializacja Cloudpickle**
-    - Potwierdza strukturę agenta ADK, obecność 5 dynamicznych narzędzi i binarną serializację dla Agent Runtime.
-12. **Test 12: Weryfikacja Wdrożenia Vertex AI Reasoning Engine (Serving State)**
-    - Sprawdza dostępność i stan wdrożonego zasobu Reasoning Engine w Vertex AI (`europe-west1`).
-13. **Test 13: Rejestracja i Bezpieczeństwo Agenta w Gemini Enterprise (`sharingConfig: RESTRICTED`)**
-    - Bada czy agent w Discovery Engine jest w stanie `ENABLED` z konfiguracją udostępnienia `RESTRICTED` (dostęp tylko dla wdrażającego; opcjonalnie `ALL_USERS`).
-14. **Test 14: Dynamiczne Zapytanie Per-User i Filtrowanie po Dniach (Live Tool Invocation)**
-    - Wykonuje zapytanie BigQuery dla użytkowników weryfikując dzienne rekordy utylizacji w czasie rzeczywistym.
-15. **Test 15: Dynamiczne Zapytanie o Trendy Adopcji i Porównanie Użytkowników (Multi-User Ranking)**
-    - Wykonuje zapytania agregujące rankingi adopcji w skali całej organizacji.
+2. **Test 02: Schemat i Partycjonowanie Tabel BigQuery**
+   - Potwierdza partycjonowanie dzienne po polu `timestamp` i klastrowanie po `user_id`.
+3. **Test 03: Idempotentna Wsteczna Ingestja (Backfill & Deduplication)**
+   - Weryfikuje parser logów audytowych, inferencji i eliminację duplikatów.
+4. **Test 04: Kompilacja i Schemat 7 Widoków BigQuery (SQL DDL)**
+   - Sprawdza poprawność kompilacji wszystkich 7 analitycznych widoków SQL w BigQuery.
+5. **Test 05: Walidacja Agenta ADK (`google.adk.agents.Agent`) i Cloudpickle**
+   - Potwierdza strukturę agenta ADK, obecność dynamicznych narzędzi i serializację binarną.
+6. **Test 06: Uprawnienia IAM Konta Reasoning Engine oraz `sharingConfig`**
+   - Bada uprawnienia IAM konta Vertex AI oraz domyślny tryb prywatny (`RESTRICTED` - tylko dla wdrażającego).
+7. **Test 07: Odpowiedź Narzędzia `get_user_daily_utilization`**
+   - Sprawdza poprawność generowania dziennej historii utylizacji dla aktywnego użytkownika.
+8. **Test 08: Poprawność Zliczania Sesji Deep Research**
+   - Weryfikuje izolację sesji i brak double-countingu przy retry zapytań badawczych.
+9. **Test 09: Detekcja Generowania Grafik Imagen**
+   - Potwierdza poprawność kategoryzacji zapytań generujących obrazy.
+10. **Test 10: Zliczanie Utworzonych Agentów i Odrzucanie Błędów**
+    - Sprawdza zliczanie zdarzeń `CreateAgent` i odrzucanie operacji zakończonych błędem.
+11. **Test 11: Ranking Użytkowników i Trendy Adopcji DAU**
+    - Potwierdza agregację danych w narzędziu `get_user_summary` i `get_daily_adoption`.
+12. **Test 12: Limity Kwotowe i Headroom w Czasie Rzeczywistym**
+    - Weryfikuje odczyt metryk Cloud Monitoring Quotas (RPM, TPM, headroom).
+13. **Test 13: Ślady OpenTelemetry, Czasy TTFT i Błędy**
+    - Bada czasy odpowiedzi do pierwszego tokena oraz korelacje spanów OTel.
+14. **Test 14: Niezmienniki Matematyczne Zdarzeń i Tokenów**
+    - Weryfikuje spójność: $\text{Zdarzenia} \ge \text{Zapytania} + \text{Deep Research} + \text{Agenty}$ oraz $\text{Tokeny} = \text{Input} + \text{Output}$.
+15. **Test 15: Precyzja Przypisywania Tokenów po Śladach OTel**
+    - Sprawdza brak duplikatów w korelacji tabeli wnioskowania modelu z sesjami asystenta.
+16. **Test 16: Raportowanie Zerowej Utylizacji (Zero-Utilization Contract)**
+    - Potwierdza poprawność kontraktu odpowiedzi dla użytkowników bez zarejestrowanej aktywności.
+17. **Test 17: Niewrażliwość Resolwera Silników na Nazewnictwo**
+    - Bada elastyczne dopasowywanie silników po `display_name`, pełnym ID, ze spacjami i pustym hincie.
+18. **Test 18: Auto-detekcja Projektu GCP ze Środowiska**
+    - Potwierdza odporność na brak zmiennych środowiskowych i auto-detekcję z `google.auth.default()`.
+19. **Test 19: Odporność na Ewolucję Schematów Payloadów**
+    - Weryfikuje parser logów w przypadku braku pól, zagnieżdżonych struktur i wariantów camelCase/lowercase.
+20. **Test 20: Niewrażliwość na Konfiguracje Regionalne (eu, global, us)**
+    - Sprawdza odporność komunikacji z endpointami regionalnymi Discovery Engine.
+21. **Test 21: Reguły AI Governance i Privacy-by-Design**
+    - Weryfikuje domyślne `sensitiveLoggingEnabled: True` + Exclusion Filter w Cloud Logging oraz `sharingConfig: RESTRICTED`.
+22. **Test 22: Statystyki Wywołań Autorskich Agentów (Self-Usage & Org-Wide Invariants)**
+    - Weryfikuje metryki wywołań agentów autora (`author_agent_*`) i organizacji (`org_agent_*`) oraz ich niezmienniki matematyczne.
 
 ---
 
-## 8. Rozwiązywanie Problemów (Troubleshooting & Self-Healing)
+## 9. Rozwiązywanie Problemów (Troubleshooting & Self-Healing)
 
 ### Błąd 400 w Gemini Enterprise: `Reasoning Engine stream closed cleanly without producing any events`
 
