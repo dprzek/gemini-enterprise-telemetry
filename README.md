@@ -23,7 +23,8 @@ cd gemini-enterprise-telemetry
 ./deploy.sh <GE_APP_ID - nie mylić z APP_NAME> --recreate
 
 # Opcjonalnie: udostępnienie Agenta wszystkim użytkownikom w organizacji (ALL_USERS):
-# Domyślnie agent jest widoczny tylko dla osoby wdrażającej (RESTRICTED):
+# Domyślnie agent jest wdrażany w trybie prywatnym (RESTRICTED - dostępny wyłącznie dla wdrażającego).
+# W każdej chwili po wdrożeniu administrator może dodać użytkowników lub grupy w konsoli Gemini Enterprise:
 ./deploy.sh <GE_APP_ID> --share-with-all-users
 
 # Opcjonalnie: zachowanie treści promptów w Cloud Logging (domyślnie odrzucane przez Exclusion Filter):
@@ -34,11 +35,18 @@ cd gemini-enterprise-telemetry
 ```
 
 > [!IMPORTANT]
+> **Izolacja IAM i Bezpieczeństwo Wdrożenia (Domyślny Tryb RESTRICTED)**
+> - W momencie wdrożenia Agent **NIE** jest udostępniany grupie *"all users"*.
+> - Domyślna konfiguracja `sharingConfig: { "scope": "RESTRICTED" }` sprawia, że wyłącznie osoba wdrażająca posiada dostęp do Agenta Telemetrii.
+> - **Elastyczne zarządzanie uprawnieniami**: Po wdrożeniu administrator może w dowolnym momencie w konsoli Google Cloud (*Discovery Engine* $\rightarrow$ *Assistants* $\rightarrow$ *Agents* $\rightarrow$ *Sharing*) udostępnić agenta konkretnym osobom, grupom domenowym Google Workspace/Cloud Identity lub całej organizacji.
+
+> [!IMPORTANT]
 > **AI Governance, Ochrona Danych i Data Residency w EU**
 > - **Enterprise Governance (Zero Prompt & Zero M365 Storage + Pełna atrybucja UPN)**: Domyślnie instalator konfiguruje silnik z `sensitiveLoggingEnabled: true` (co zapobiega maskowaniu przez Google tożsamości użytkowników do `"<elided>"` w logach aktywności), jednocześnie automatycznie konfigurując **Exclusion Filter** na zlewie `_Default` w Cloud Logging. Dzięki temu:
 >   - Treść promptów użytkowników (`gen_ai.user.message`) oraz odpowiedzi i fragmenty dokumentów wewnętrznych M365 / SharePoint / Drive (`gen_ai.choice`) **są natychmiast odrzucane (drop) na bramce Cloud Logging i NIGDY nie trafiają do BigQuery ani do magazynu logów**.
 >   - Jednocześnie telemetria, metryki tokenów, opóźnienia i aktywność użytkowników są precyzyjnie przypisywane do konkretnych kont UPN.
 > - **Nienaruszalność audytu projektu (`auditConfigs`)**: Skrypt nie modyfikuje polityk IAM projektu GCP i **nie włącza** kosztownych logów `DATA_READ` dla Discovery Engine.
+> - **Odporność na błędy schematu zlewu logów (Self-Healing `query: STRING`)**: Instalator automatycznie tworzy i naprawia schemat tabeli aktywności użytkowników, definiując pole `query` jako `STRING` (zamiast `RECORD`), co zapobiega błędowi Cloud Logging `table_invalid_schema` (`Cannot convert std::string to a record field`) i automatycznie radzi sobie z buforem strumieniowym BigQuery.
 > - **Suwerenność danych (100% EU Data Residency)**: Przy parametrze `--location eu`, wszystkie zasoby (silnik Gemini w `eu`, zbiór BigQuery w `EU`, Vertex AI Reasoning Engine, model wnioskowania i bucket stagingowy w `europe-west1`) przetwarzają i przechowują dane **wyłącznie w granicach Unii Europejskiej**.
 
 > [!NOTE]
@@ -68,6 +76,17 @@ Szczegółowy podręcznik procedur wdrożeniowych krok po kroku znajduje się w 
 
 Agent telemetrii (`Gemini Enterprise Telemetry & Adoption Agent`) korzysta z dynamicznych narzędzi Python i bezpośrednio odpytuje BigQuery oraz Cloud Monitoring API w czasie rzeczywistym. Możesz rozmawiać z nim w języku naturalnym:
 
+### 🎯 Domyślna propozycja startowa i analiza adopcji (Bottom 10)
+- *"Dzień dobry / Cześć"* — Agent wita oficjalnym oświadczeniem o oferowanych metrykach i jako **wyjściową propozycję startową** natychmiast generuje tabelę **10 najmniej aktywnych użytkowników (Bottom 10)** w organizacji ze szczegółowymi statystykami użycia platformy, ułatwiając identyfikację obszarów wymagających szkoleń lub onboardingu.
+- *"Pokaż najmniej aktywnych użytkowników (Bottom 10) ze statystykami użycia platformy."*
+- *"Którzy pracownicy potrzebują wsparcia adopcyjnego lub szkoleń z Gemini Enterprise?"*
+- *"Ilu użytkowników w ogóle nie korzysta z platformy (zerowa utylizacja)?"*
+
+### 🤖 Autorskie agenty użytkowników (użycie własne vs organizacja)
+- *"Ile razy jan.kowalski@twoja-firma.com korzystał ze swoich agentów, a ile razy używali ich inni pracownicy w organizacji?"*
+- *"W ilu sesjach/czatach autor używał własnych agentów, a w ilu cała organizacja?"*
+- *"Pokaż statystyki wywołań agentów stworzonych przez zespół analityczny w podziale na sesje autora i organizacji."*
+
 ### 👤 Aktywność i utylizacja użytkowników
 - *"Przedstaw aktywność użytkownika jan.kowalski@twoja-firma.com z ostatnich 14 dni z rozbiciem na poszczególne dni."*
 - *"Ile zapytań i tokenów zużył jan.kowalski@twoja-firma.com w tym tygodniu?"*
@@ -87,17 +106,24 @@ Agent telemetrii (`Gemini Enterprise Telemetry & Adoption Agent`) korzysta z dyn
 
 ## 📊 Śledzone metryki
 
-| Kategoria | Mierzone wymiary | Źródło danych |
+> [!NOTE]
+> **Formalizacja pojęć: Zapytania / Wywołania (`queries` / `invocations`) vs Czaty / Sesje (`sessions`)**
+> - **Zapytania / Wywołania (Invocations / Queries)**: Pojedyncze interakcje (prompty/requesty) przesłane przez użytkownika do asystenta lub agenta w ramach dialogu.
+> - **Czaty / Sesje (Sessions)**: Kompletne wątki konwersacyjne (ciągłe dyskusje), które mogą obejmować od jednej do wielu tur dialogowych. W naturalny sposób liczba zapytań jest zawsze równa lub większa od liczby sesji ($N_{\text{queries}} \ge N_{\text{sessions}}$).
+
+| Kategoria (Kolumna Tabeli) | Mierzone wymiary i definicja | Źródło danych |
 | :--- | :--- | :--- |
-| **Zapytania i czat** | Wolumen promptów, odpowiedzi, głębokość konwersacji (tury/sesję) | BigQuery + Cloud Monitoring |
-| **Deep Research** | Unikalne sesje wieloetapowego badania rynku/wiedzy | BigQuery (`agents/deep_research`) |
-| **Generowanie obrazów** | Liczba wygenerowanych grafik (modele graficzne) | BigQuery (`is_image_generation`) |
-| **Tworzenie agentów** | Liczba utworzonych i edytowanych agentów customowych | Cloud Audit Logs (`CreateAgent`) |
-| **Wywołania autorskich agentów** | Wywołania i sesje agentów autora: własne (`author_agent_*`) oraz w skali organizacji (`org_agent_*`) | BigQuery (`v_author_agent_usage`) |
-| **Konsumpcja tokenów** | Tokeny wejściowe (prompt), wyjściowe i buforowane (cache) | BigQuery (`gen_ai_client_inference`) |
-| **Adopcja UX** | Wskaźniki DAU / WAU / MAU, retencja użytkowników | BigQuery (`v_daily_adoption`) |
-| **Limity kwotowe** | Zapytania, agenty, deep research, WTU developerów, storage | Cloud Monitoring (`quota/*`) |
-| **Wydajność i błędy** | Czas do 1. tokena (TTFT), spany OTel, kody HTTP / statusy RPC | Cloud Trace & Audit Logs |
+| **Zapytania asystenta (czat)** | Zapytania czatu ogólnego (z wykluczeniem wywołań customowych agentów i Deep Research) | BigQuery (`is_assistant_query`) |
+| **Zadań Deep Research** | Unikalne sesje wieloetapowego badania rynku i syntezy wiedzy | BigQuery (`agents/deep_research`) |
+| **Wygenerowane obrazy** | Liczba wygenerowanych grafik i zdjęć (modele Imagen) | BigQuery (`is_image_generation`) |
+| **Utworzone agenty** | Liczba autorskich agentów stworzonych w Agent Designerze (tylko udane: `status.code = 0`) | Cloud Audit Logs (`CreateAgent`) |
+| **Czaty z agentami użytkownika (author_agent_sessions)** | W ilu dyskusjach/sesjach autor korzystał ze stworzonych przez siebie agentów (Self-Usage) | BigQuery (`v_author_agent_usage`) |
+| **Czaty z agentami użytkownika (org_agent_sessions)** | W ilu dyskusjach/sesjach agenci stworzeni przez autora byli wywoływani w całej organizacji (autor + inni pracownicy) | BigQuery (`v_author_agent_usage`) |
+| **Wywołania agentów (invocations)** | Łączna liczba promptów wysłanych do agentów autora: `author_agent_invocations` oraz `org_agent_invocations` | BigQuery (`v_author_agent_usage`) |
+| **Konsumpcja tokenów** | Wolumen tokenów wejściowych (prompt), wyjściowych (odpowiedź) i całkowitych (`total_tokens`) | BigQuery (`gen_ai_client_inference`) |
+| **Adopcja UX** | Wskaźniki DAU / WAU / MAU, retencja użytkowników i głębokość konwersacji | BigQuery (`v_daily_adoption`) |
+| **Limity kwotowe** | Pule dzienne: zapytania, agenty, deep research, WTU developerów, storage | Cloud Monitoring (`quota/*`) |
+| **Wydajność i obserwowalność** | Czas do 1. tokena (TTFT), spany OTel (`StreamAssist`), statusy RPC | Cloud Trace & Audit Logs |
 
 ---
 
@@ -170,12 +196,13 @@ gemini-enterprise-telemetry/
 │   └── telemetry_cli.py        # Narzędzie konsolowe CLI
 ├── scripts/
 │   ├── backfill_logs_to_bigquery.py  # Idempotentny backfill historii logów
+│   ├── fix_user_activity_schema.py   # Narzędzie naprawy schematu BigQuery (Self-Healing query: STRING)
 │   └── simulate_mock_user_activity.py # Symulacja aktywności testowej
 ├── monitoring/
 │   └── gemini_enterprise_telemetry_dashboard.json # Definicja dashboardu Cloud Monitoring
 ├── terraform/                  # Opcjonalne wdrożenie Infrastructure-as-Code
 └── tests/
-    └── test_suite.py           # Zestaw testów jednostkowych i integracyjnych
+    └── test_suite.py           # Zestaw testów jednostkowych i integracyjnych (24 testy)
 ```
 
 ---
