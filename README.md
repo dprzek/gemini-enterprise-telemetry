@@ -2,7 +2,7 @@
 
 Gotowe do wdrożenia rozwiązanie do monitorowania, analizy i raportowania telemetrii wykorzystania **Google Cloud Gemini Enterprise** w organizacji.
 
-Pakiet opiera się na oficjalnych mechanizmach obserwowalności platformy (OpenTelemetry, Cloud Audit Logs, Cloud Monitoring Quotas), zdeduplikowanych widokach BigQuery oraz **autonomicznym Agencie ADK**, wdrożonym w **Vertex AI Reasoning Engine** i dostępnym bezpośrednio dla użytkowników w Gemini Enterprise (`ALL_USERS`).
+Pakiet opiera się na oficjalnych mechanizmach obserwowalności platformy (OpenTelemetry, Cloud Audit Logs, Cloud Monitoring Quotas), zdeduplikowanych widokach BigQuery oraz **autonomicznym Agencie ADK**, wdrożonym w **Vertex AI Reasoning Engine** i rejestrowanym w Gemini Enterprise w trybie bezpiecznym (domyślnie dostępnym tylko dla wdrażającego: `RESTRICTED`).
 
 ---
 
@@ -21,6 +21,10 @@ cd gemini-enterprise-telemetry
 
 # Wymuszenie ponownego wdrożenia Agenta (np. przy aktualizacji kodu):
 ./deploy.sh <GE_APP_ID - nie mylić z APP_NAME> --recreate
+
+# Opcjonalnie: udostępnienie Agenta wszystkim użytkownikom w organizacji (ALL_USERS):
+# Domyślnie agent jest widoczny tylko dla osoby wdrażającej (RESTRICTED):
+./deploy.sh <GE_APP_ID> --share-with-all-users
 
 # Opcjonalnie: zachowanie treści promptów w Cloud Logging (domyślnie odrzucane przez Exclusion Filter):
 ./deploy.sh <GE_APP_ID> --keep-raw-prompts
@@ -54,7 +58,7 @@ cd gemini-enterprise-telemetry
 > - Tworzy zbiór danych BigQuery w lokalizacji `EU`, zlew logów i nadaje uprawnienia IAM.
 > - Przeprowadza idempotentny backfill historii i kompiluje zdeduplikowane widoki SQL.
 > - Tworzy dashboard operacyjny w Cloud Monitoring.
-> - Buduje i wdraża agenta ADK do Vertex AI Reasoning Engine w regionie `europe-west1` oraz publikuje go w aplikacji (`ALL_USERS`).
+> - Buduje i wdraża agenta ADK do Vertex AI Reasoning Engine w regionie `europe-west1` oraz rejestruje go w aplikacji w trybie prywatnym (`RESTRICTED` - dostęp ma tylko wdrażający; opcjonalnie `--share-with-all-users`).
 
 Szczegółowy podręcznik procedur wdrożeniowych krok po kroku znajduje się w [MANUAL.md](MANUAL.md).
 
@@ -106,7 +110,7 @@ Agent telemetrii (`Gemini Enterprise Telemetry & Adoption Agent`) korzysta z dyn
            │
            └─► Vertex AI Reasoning Engine (ADK Agent: gemini-2.5-flash)
                     │
-                    └─► Gemini Enterprise Assistant (Współdzielenie: ALL_USERS)
+                    └─► Gemini Enterprise Assistant (Domyślnie: RESTRICTED / opcjonalnie ALL_USERS)
 ```
 
 1. **Brak parsowania tekstu regexem**: Zdarzenia i tokeny są ściśle powiązane po natywnych identyfikatorach śladów OpenTelemetry (`trace_id`, `span_id`).

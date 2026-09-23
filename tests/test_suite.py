@@ -230,7 +230,7 @@ class GeminiEnterprise20TestSuite(unittest.TestCase):
         self.assertGreater(len(pickled), 100, "Serializacja cloudpickle musi generować poprawny obiekt binarny.")
 
     def test_06_iam_reasoning_engine_and_sharing_config(self):
-        """Test 06: Weryfikuje uprawnienia IAM konta Reasoning Engine oraz sharingConfig: ALL_USERS."""
+        """Test 06: Weryfikuje uprawnienia IAM konta Reasoning Engine oraz sharingConfig (domyślnie RESTRICTED / tylko dla wdrażającego)."""
         self._require_live_gcp()
         self.assertIsNotNone(self.project_number, "Wymagany project_number do weryfikacji konta RE.")
         sa_email = f"service-{self.project_number}@gcp-sa-aiplatform-re.iam.gserviceaccount.com"
@@ -256,7 +256,8 @@ class GeminiEnterprise20TestSuite(unittest.TestCase):
         adk_agent = next((a for a in agents if "Telemetry" in a.get("displayName", "")), None)
         self.assertIsNotNone(adk_agent, "Nie znaleziono zarejestrowanego Agenta Telemetrii w Gemini Enterprise.")
         self.assertEqual(adk_agent.get("state"), "ENABLED")
-        self.assertEqual(adk_agent.get("sharingConfig", {}).get("scope"), "ALL_USERS")
+        # Agent w momencie deploymentu NIE może mieć scope: ALL_USERS - tylko wdrażający (RESTRICTED)
+        self.assertIn(adk_agent.get("sharingConfig", {}).get("scope", "RESTRICTED"), ("RESTRICTED", "PRIVATE"))
 
     # ==========================================================================
     # KATEGORIA 2: Prawidłowość Odpowiedzi na Wybrane Prompty
@@ -544,6 +545,14 @@ class GeminiEnterprise20TestSuite(unittest.TestCase):
         self.assertIn("--disable-sensitive-logging", help_output)
         self.assertIn("--keep-raw-prompts", help_output)
         self.assertIn("Exclusion Filter", help_output)
+        self.assertIn("--share-with-all-users", help_output)
+
+        # 4. Sprawdzenie sygnatury register_adk_agent_in_gemini (domyślnie share_with_all_users=False -> RESTRICTED)
+        from agent.deploy_adk_agent import register_adk_agent_in_gemini
+        sig_agent = inspect.signature(register_adk_agent_in_gemini)
+        self.assertIn("share_with_all_users", sig_agent.parameters)
+        self.assertEqual(sig_agent.parameters["share_with_all_users"].default, False,
+                         "Domyślna wartość share_with_all_users MUSI wynosić False (dostęp tylko dla wdrażającego).")
 
 
 if __name__ == "__main__":

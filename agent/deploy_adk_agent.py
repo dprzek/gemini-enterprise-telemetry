@@ -166,17 +166,18 @@ def delete_existing_agents(project_id, project_number, location, engine_id, cred
         print(f"[WARN] Nie udało się pobrać listy istniejących agentów: {e}")
 
 
-def register_adk_agent_in_gemini(project_id, project_number, location, engine_id, reasoning_engine_resource_name, credentials):
+def register_adk_agent_in_gemini(project_id, project_number, location, engine_id, reasoning_engine_resource_name, credentials, share_with_all_users=False):
     api_host = f"{location}-discoveryengine.googleapis.com" if location != "global" else "discoveryengine.googleapis.com"
     token = get_access_token(credentials)
     url = f"https://{api_host}/v1alpha/projects/{project_number or project_id}/locations/{location}/collections/default_collection/engines/{engine_id}/assistants/default_assistant/agents"
     
+    scope = "ALL_USERS" if share_with_all_users else "RESTRICTED"
     payload = {
         "displayName": "Gemini Enterprise Telemetry & Adoption Agent",
         "description": "Dynamiczny agent ADK telemetrii, utylizacji i adopcji Gemini Enterprise w czasie rzeczywistym.",
         "state": "ENABLED",
         "sharingConfig": {
-            "scope": "ALL_USERS"
+            "scope": scope
         },
         "adk_agent_definition": {
             "tool_settings": {
@@ -206,7 +207,9 @@ def register_adk_agent_in_gemini(project_id, project_number, location, engine_id
             print(f"     Nazwa: {res.get('displayName')}")
             print(f"     Resource: {res.get('name')}")
             print(f"     Stan: {res.get('state')}")
-            print(f"     Sharing: {res.get('sharingConfig', {}).get('scope', 'ALL_USERS')}")
+            sharing_scope = res.get('sharingConfig', {}).get('scope', scope)
+            sharing_desc = "Wszyscy użytkownicy organizacji (ALL_USERS)" if sharing_scope == "ALL_USERS" else "Tylko dla wdrażającego (RESTRICTED)"
+            print(f"     Sharing: {sharing_scope} ({sharing_desc})")
             return res
     except urllib.error.HTTPError as e:
         err_body = e.read().decode("utf-8")
@@ -291,6 +294,8 @@ def main():
     parser.add_argument("--dataset", default="gemini_enterprise_telemetry", help="BigQuery Dataset ID")
     parser.add_argument("--reasoning-engine", default=None, help="Existing Vertex AI Reasoning Engine resource name to reuse")
     parser.add_argument("--recreate", action="store_true", help="Wymusza utworzenie nowego Reasoning Engine nawet jeśli istnieje stary")
+    parser.add_argument("--share-with-all-users", action="store_true", default=False,
+                        help="Udostępnia agenta wszystkim użytkownikom w organizacji (ALL_USERS). Domyślnie agent jest widoczny tylko dla wdrażającego (RESTRICTED).")
     args = parser.parse_args()
 
     engine_input = args.engine_id_flag or args.engine
@@ -422,7 +427,8 @@ def main():
         args.location,
         engine_id,
         engine_resource_name,
-        credentials
+        credentials,
+        share_with_all_users=args.share_with_all_users
     )
 
     print(f"\n============================================================")

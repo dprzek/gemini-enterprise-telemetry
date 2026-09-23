@@ -27,6 +27,8 @@ parser.add_argument("--project", "-p", dest="flag_project", default=None, help="
 parser.add_argument("--location", "-l", dest="flag_location", default=None, help="Lokalizacja silnika (np. eu)")
 parser.add_argument("--engine", "-e", dest="flag_engine", default=None, help="ID Silnika lub nazwa aplikacji")
 parser.add_argument("--assistant", "-a", dest="flag_assistant", default=None, help="ID Asystenta")
+parser.add_argument("--share-with-all-users", action="store_true", default=False,
+                    help="Udostępnia agenta wszystkim użytkownikom w organizacji (ALL_USERS). Domyślnie agent jest prywatny (RESTRICTED - dostęp tylko dla wdrażającego)")
 args, _ = parser.parse_known_args()
 
 PROJECT_ID = args.flag_project or args.pos_project or os.environ.get("GOOGLE_CLOUD_PROJECT")
@@ -185,7 +187,7 @@ agent_payload = {
     "displayName": "Gemini Enterprise Telemetry & Adoption Monitor",
     "description": "Administrator agent providing telemetry reporting, user adoption metrics, OpenTelemetry observability analysis, quota monitoring, and detailed per-user daily utilization tracking.",
     "sharingConfig": {
-        "scope": "ALL_USERS"
+        "scope": "ALL_USERS" if args.share_with_all_users else "RESTRICTED"
     },
     "agentInvocationSpec": {
         "invocationMode": "AUTOMATIC"

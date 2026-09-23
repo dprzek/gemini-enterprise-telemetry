@@ -155,7 +155,7 @@ cd gemini-enterprise-telemetry
 > 3. **Zlew Cloud Logging i uprawnienia**: Automatycznie zakłada zbiór danych BigQuery w lokalizacji `EU`, zlew logów i nadaje uprawnienia `roles/bigquery.dataEditor`.
 > 4. **Wsteczna ingestja logów**: Uzupełnia historię z ostatnich 30 dni.
 > 5. **Analityka SQL i Dashboard**: Wdraża zdeduplikowane widoki SQL oraz tworzy dashboard w Cloud Monitoring.
-> 6. **Agent Telemetrii**: Tworzy i publikuje Agenta z uprawnieniami publicznymi (`ALL_USERS`).
+> 6. **Agent Telemetrii**: Tworzy i rejestruje Agenta w trybie prywatnym (`RESTRICTED` - dostęp tylko dla wdrażającego; opcjonalnie z flagą `--share-with-all-users`).
 
 ---
 
@@ -197,14 +197,15 @@ gcloud monitoring dashboards create \
 ```
 
 ### Krok 5.6: Wdrożenie Dynamicznego Agenta ADK (Vertex AI Agent Runtime) i Współdzielenie
-Wdraża Agenta ADK do Vertex AI Reasoning Engine i rejestruje go w Gemini Enterprise z uprawnieniem współdzielenia dla wszystkich użytkowników (`ALL_USERS`):
+Wdraża Agenta ADK do Vertex AI Reasoning Engine i rejestruje go w Gemini Enterprise. Domyślnie agent rejestrowany jest w trybie prywatnym (`RESTRICTED` - dostępny tylko dla osoby wdrażającej). Aby udostępnić go w całej organizacji, należy dodać flagę `--share-with-all-users`:
 ```bash
 python3 agent/deploy_adk_agent.py \
   --project="<PROJECT_ID>" \
   --location="<LOCATION>" \
   --vertex-location="europe-west1" \
   --engine="<ENGINE_ID>" \
-  --dataset="gemini_enterprise_telemetry"
+  --dataset="gemini_enterprise_telemetry" \
+  [--share-with-all-users]
 ```
 
 #### Nadanie Uprawnień Użytkownikom w Projekcie GCP:
@@ -381,8 +382,8 @@ python3 -m unittest discover -s tests -p "test_suite.py" -v
     - Potwierdza strukturę agenta ADK, obecność 5 dynamicznych narzędzi i binarną serializację dla Agent Runtime.
 12. **Test 12: Weryfikacja Wdrożenia Vertex AI Reasoning Engine (Serving State)**
     - Sprawdza dostępność i stan wdrożonego zasobu Reasoning Engine w Vertex AI (`europe-west1`).
-13. **Test 13: Rejestracja i Współdzielenie Agenta w Gemini Enterprise (`sharingConfig: ALL_USERS`)**
-    - Bada czy agent w Discovery Engine jest w stanie `ENABLED` z konfiguracją udostępnienia `ALL_USERS`.
+13. **Test 13: Rejestracja i Bezpieczeństwo Agenta w Gemini Enterprise (`sharingConfig: RESTRICTED`)**
+    - Bada czy agent w Discovery Engine jest w stanie `ENABLED` z konfiguracją udostępnienia `RESTRICTED` (dostęp tylko dla wdrażającego; opcjonalnie `ALL_USERS`).
 14. **Test 14: Dynamiczne Zapytanie Per-User i Filtrowanie po Dniach (Live Tool Invocation)**
     - Wykonuje zapytanie BigQuery dla użytkowników weryfikując dzienne rekordy utylizacji w czasie rzeczywistym.
 15. **Test 15: Dynamiczne Zapytanie o Trendy Adopcji i Porównanie Użytkowników (Multi-User Ranking)**

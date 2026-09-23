@@ -351,7 +351,7 @@ def ensure_client_dependencies():
     except Exception:
         pass
 
-def deploy_telemetry_agent(project_id, location, engine_id, dataset_id="gemini_enterprise_telemetry", reasoning_engine=None, recreate=False):
+def deploy_telemetry_agent(project_id, location, engine_id, dataset_id="gemini_enterprise_telemetry", reasoning_engine=None, recreate=False, share_with_all_users=False):
     """Wdraża dynamicznego Agenta ADK w Vertex AI Agent Runtime i rejestruje w Gemini Enterprise."""
     print("--> [7/7] Wdrażanie Agenta Telemetrii w Gemini Enterprise (Dynamic ADK Agent na Vertex AI Agent Runtime)...")
     agent_script = os.path.join(os.path.dirname(__file__), "agent", "deploy_adk_agent.py")
@@ -366,6 +366,8 @@ def deploy_telemetry_agent(project_id, location, engine_id, dataset_id="gemini_e
         cmd.append(f"--reasoning-engine={reasoning_engine}")
     if recreate:
         cmd.append("--recreate")
+    if share_with_all_users:
+        cmd.append("--share-with-all-users")
     subprocess.run(cmd, check=True)
 
 def main():
@@ -386,6 +388,8 @@ def main():
                         help="Wyłącza Exclusion Filter w Cloud Logging, zachowując surowe treści promptów i fragmenty M365 w bucketcie _Default")
     parser.add_argument("--enable-sensitive-logging", action="store_true", default=True,
                         help="Włącza przypisywanie tożsamości w obserwowalności silnika (domyślnie włączone w połączeniu z Exclusion Filter)")
+    parser.add_argument("--share-with-all-users", action="store_true", default=False,
+                        help="Udostępnia agenta telemetrii wszystkim użytkownikom w organizacji (ALL_USERS). Domyślnie agent jest prywatny (RESTRICTED - widoczny tylko dla wdrażającego)")
     args = parser.parse_args()
 
     project_id = args.project or os.environ.get("GOOGLE_CLOUD_PROJECT") or get_default_project()
@@ -448,7 +452,12 @@ def main():
     deploy_monitoring_dashboard(project_id)
 
     # 7. Agent Gemini Enterprise
-    deploy_telemetry_agent(project_id, location, engine_id, dataset_id, reasoning_engine=args.reasoning_engine, recreate=args.recreate)
+    deploy_telemetry_agent(
+        project_id, location, engine_id, dataset_id,
+        reasoning_engine=args.reasoning_engine,
+        recreate=args.recreate,
+        share_with_all_users=args.share_with_all_users
+    )
 
     print("\n======================================================================")
     print("✔ Wdrożenie zakończone pełnym sukcesem! Wszystkie komponenty są aktywne.")
