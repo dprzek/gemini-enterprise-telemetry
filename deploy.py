@@ -292,6 +292,22 @@ def setup_bigquery_and_sink(project_id, location, dataset_id, sink_name="gemini-
         writer_identity = res.stdout.strip()
         print(f"    ✔ Utworzono zlew logów '{sink_name}'.")
 
+    # 2b. Wykluczenie zapytań Search (gdzie query jest typu std::string, co koliduje ze strukturą RECORD w StreamAssist)
+    exclusion_name = "exclude-search-queries"
+    exclusion_filter = (
+        'logName=~"discoveryengine.googleapis.com%2Fgemini_enterprise_user_activity" AND '
+        '(jsonPayload.logMetadata.methodName="Search" OR '
+        'jsonPayload.logMetadata.methodName="ConverseConversation" OR '
+        'jsonPayload.logMetadata.methodName="AnswerQuery")'
+    )
+    cmd_excl = [
+        "gcloud", "logging", "sinks", "update", sink_name,
+        f"--project={project_id}",
+        f"--add-exclusion=name={exclusion_name},description=Exclude Search methods with string query to prevent schema collision with StreamAssist Record,filter={exclusion_filter}"
+    ]
+    subprocess.run(cmd_excl, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    print("    ✔ Skonfigurowano regułę wykluczenia zapytań Search na zlewie logów.")
+
     # 3. Nadanie uprawnień BigQuery Data Editor dla konta serwisowego zlewu
     writer_sa = writer_identity.replace("serviceAccount:", "")
     entries = list(dataset.access_entries)

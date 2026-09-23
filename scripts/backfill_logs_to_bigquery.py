@@ -106,9 +106,10 @@ def parse_audit_entry(e):
 
 def repair_user_activity_schema_if_needed(client, project_id, dataset_id, user_act_schema, force=False):
     """Weryfikuje czy tabela discoveryengine_googleapis_com_gemini_enterprise_user_activity
-    posiada kolumnę jsonPayload.request.query o typie RECORD (błąd table_invalid_schema).
-    Jeśli tak (lub gdy force=True), zmienia nazwę tabeli na discoveryengine_googleapis_com_gemini_enterprise_user_activity_bad_schema
-    i tworzy nową tabelę z poprawnym typem STRING.
+    posiada kolumnę jsonPayload.request.query o typie STRING (powodującą błąd odrzucenia StreamAssist:
+    'This field: query is not a record').
+    Jeśli tak (lub gdy force=True), zabezpiecza starą tabelę i odtwarza właściwy schemat RECORD
+    ze strukturą parts REPEATED RECORD<text STRING>.
     """
     table_id = f"{project_id}.{dataset_id}.discoveryengine_googleapis_com_gemini_enterprise_user_activity"
     try:
@@ -117,30 +118,30 @@ def repair_user_activity_schema_if_needed(client, project_id, dataset_id, user_a
         # Tabela nie istnieje - zostanie utworzona ze świeżym schematem
         return False
 
-    is_query_record = False
+    is_query_string = False
     for f in tbl.schema:
         if f.name == "jsonPayload" and f.fields:
             for sub in f.fields:
                 if sub.name == "request" and sub.fields:
                     for rsub in sub.fields:
-                        if rsub.name == "query" and rsub.field_type == "RECORD":
-                            is_query_record = True
+                        if rsub.name == "query" and rsub.field_type == "STRING":
+                            is_query_string = True
                             break
 
-    if not is_query_record and not force:
+    if not is_query_string and not force:
         return False
 
     print(f"[!] Wykryto niezgodność schematu w BigQuery dla tabeli: {table_id}")
-    print("    Pole 'jsonPayload.request.query' ma typ RECORD zamiast STRING (lub wymuszono naprawę).")
-    print("    Powoduje to błąd Cloud Logging Sink: table_invalid_schema (Cannot convert std::string to a record field).")
+    print("    Pole 'jsonPayload.request.query' ma typ STRING zamiast RECORD (lub wymuszono naprawę).")
+    print("    Blokuje to ingestję StreamAssist z błędem: 'This field: query is not a record.'")
     print("    Inicjalizacja procedury Self-Healing: migracja starej tabeli i odtworzenie poprawnego schematu...")
 
-    bad_table_name = "discoveryengine_googleapis_com_gemini_enterprise_user_activity_bad_schema"
+    bad_table_name = "discoveryengine_googleapis_com_gemini_enterprise_user_activity_string_backup"
     try:
         existing_tables = [t.table_id for t in client.list_tables(f"{project_id}.{dataset_id}")]
         if bad_table_name in existing_tables:
             import time
-            bad_table_name = f"discoveryengine_googleapis_com_gemini_enterprise_user_activity_bad_schema_{int(time.time())}"
+            bad_table_name = f"discoveryengine_googleapis_com_gemini_enterprise_user_activity_string_backup_{int(time.time())}"
 
         # 1. Próba wykonania szybkiego RENAME
         rename_sql = f"ALTER TABLE `{table_id}` RENAME TO `{bad_table_name}`"
@@ -148,8 +149,6 @@ def repair_user_activity_schema_if_needed(client, project_id, dataset_id, user_a
             client.query(rename_sql).result()
             print(f"    ✔ Zabezpieczono starą tabelę jako '{bad_table_name}'.")
         except Exception as rename_err:
-            # BigQuery blokuje ALTER TABLE RENAME jeśli tabela posiada aktywny streaming buffer
-            # W takim przypadku wykonujemy kopię CTAS oraz bezpieczne usunięcie starej tabeli
             print(f"    [*] ALTER TABLE RENAME powstrzymany przez bufor streamingowy ({rename_err}).")
             print("    [*] Zabezpieczanie danych przez CTAS Snapshot i odtworzenie tabeli...")
             copy_sql = f"CREATE OR REPLACE TABLE `{project_id}.{dataset_id}.{bad_table_name}` AS SELECT * FROM `{table_id}`"
@@ -161,12 +160,12 @@ def repair_user_activity_schema_if_needed(client, project_id, dataset_id, user_a
         return False
 
     create_partitioned_table(client, table_id, user_act_schema)
-    print("    ✔ Utworzono nową tabelę 'discoveryengine_googleapis_com_gemini_enterprise_user_activity' z typem query STRING.")
+    print("    ✔ Utworzono nową tabelę 'discoveryengine_googleapis_com_gemini_enterprise_user_activity' z typem query RECORD.")
     return True
 
 def init_streaming_tables(client, project_id, dataset_id, force_repair=False):
     """Inicjalizuje puste tabele strumieniowe i wsteczne zlewu logów, jeśli jeszcze nie istnieją.
-    Automatycznie weryfikuje i naprawia niezgodności schematów (np. pole query typu RECORD -> STRING).
+    Automatycznie weryfikuje i naprawia niezgodności schematów (np. pole query typu STRING -> RECORD).
     """
     # 1. Tabela aktywności użytkownika (strumień Logging)
     user_act_schema = [
@@ -180,6 +179,7 @@ def init_streaming_tables(client, project_id, dataset_id, force_repair=False):
         bigquery.SchemaField("useriamprincipal", "STRING"),
         bigquery.SchemaField("jsonPayload", "RECORD", fields=[
             bigquery.SchemaField("useriamprincipal", "STRING"),
+            bigquery.SchemaField("servicetextreply", "STRING"),
             bigquery.SchemaField("logmetadata", "RECORD", fields=[
                 bigquery.SchemaField("timestamp", "STRING"),
                 bigquery.SchemaField("methodname", "STRING"),
@@ -204,6 +204,7 @@ def init_streaming_tables(client, project_id, dataset_id, force_repair=False):
             ]),
             bigquery.SchemaField("request", "RECORD", fields=[
                 bigquery.SchemaField("parent", "STRING"),
+                bigquery.SchemaField("name", "STRING"),
                 bigquery.SchemaField("userevent", "RECORD", fields=[
                     bigquery.SchemaField("engine", "STRING"),
                     bigquery.SchemaField("eventtime", "STRING"),
@@ -218,7 +219,20 @@ def init_streaming_tables(client, project_id, dataset_id, force_repair=False):
                         bigquery.SchemaField("agentid", "STRING"),
                     ]),
                 ]),
-                bigquery.SchemaField("query", "STRING"),
+                bigquery.SchemaField("query", "RECORD", mode="NULLABLE", fields=[
+                    bigquery.SchemaField("parts", "RECORD", mode="REPEATED", fields=[
+                        bigquery.SchemaField("text", "STRING", mode="NULLABLE"),
+                    ]),
+                ]),
+                bigquery.SchemaField("agent", "RECORD", fields=[
+                    bigquery.SchemaField("name", "STRING"),
+                ]),
+                bigquery.SchemaField("policy", "RECORD", fields=[
+                    bigquery.SchemaField("bindings", "RECORD", mode="REPEATED", fields=[
+                        bigquery.SchemaField("role", "STRING"),
+                        bigquery.SchemaField("members", "STRING", mode="REPEATED"),
+                    ]),
+                ]),
             ]),
             bigquery.SchemaField("status", "RECORD", fields=[
                 bigquery.SchemaField("code", "INTEGER"),

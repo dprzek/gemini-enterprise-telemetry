@@ -465,10 +465,16 @@ Error Detail: Cannot convert std::string to a record field:optional .Msg_0_CLOUD
 Routing logów ze zdarzeniami aktywności użytkowników do BigQuery zostaje wstrzymany.
 
 #### Diagnoza i Przyczyna Źródłowa:
-W wewnętrznej definicji protobuf usług Google Cloud Discovery Engine / Gemini Enterprise pole zapytania użytkownika ma sygnaturę:
-`optional std::string query = 4;`
-Oznacza to, że Cloud Logging przesyła zawartość tego pola jako czysty łańcuch znaków (`std::string`).
-Jeśli tabela BigQuery `discoveryengine_googleapis_com_gemini_enterprise_user_activity` została pierwotnie zainicjalizowana ze schematem zagnieżdżonym (`RECORD` ze strukturą `parts.text`), Cloud Logging Sink napotyka na konflikt typów (nie może zapisać typu string do kolumny typu struct/record) i odrzuca strumieniowanie z kodem `table_invalid_schema`.
+W Google Cloud Discovery Engine pod tym samym zbiorem logów (`discoveryengine.googleapis.com/gemini_enterprise_user_activity`) operują dwa różne typy usług:
+1. **SearchService** (metody wyszukiwarki: `Search`, `ConverseConversation`, `AnswerQuery`) – pole `query` w protobuf to prosty `std::string`.
+2. **AssistantService** (metody Gemini Enterprise / Czat / Agenci: `StreamAssist`, `Assist`) – pole `query` w protobuf to obiekt `RECORD` ze strukturą `parts: repeated struct<text string>`.
+
+BigQuery nie obsługuje unii typów (kolumn polimorficznych) na tym samym polu. Gdy do tabeli z kolumną `RECORD` wpada zapytanie wyszukiwarki (`Search`), Cloud Logging Sink zgłasza błąd `Cannot convert std::string to a record field`. Z kolei gdyby tabela miała typ `STRING`, zdarzenia czatowe `StreamAssist` zostają odrzucone do `export_errors` z błędem `This field: query is not a record`.
+
+#### Rozwiązanie Architektoniczne:
+Zastosowano model eliminacji kolizji u źródła (Log Router Sink Filter):
+1. **Wykluczenie na zlewie logów (Sink Exclusion)**: Reguła `exclude-search-queries` na zlewie `gemini-enterprise-telemetry-sink` wyklucza zapytania tekstowe `Search`/`ConverseConversation`, które nie wchodzą w skład telemetrii agenta Gemini Enterprise.
+2. **Schemat BigQuery**: Tabela `discoveryengine_googleapis_com_gemini_enterprise_user_activity` posiada natywny typ `RECORD` ze strukturą `parts`, co zapewnia 100% bezbłędną rejestrację interakcji asystenta, agentów i powiązanych tokenów LLM.
 
 #### Rozwiązanie Zautomatyzowane (1 komenda – Self-Healing):
 W repozytorium dostępny jest dedykowany skrypt autonaprawczy:
@@ -476,28 +482,11 @@ W repozytorium dostępny jest dedykowany skrypt autonaprawczy:
 python3 scripts/fix_user_activity_schema.py --project <PROJECT_ID>
 ```
 Skrypt automatycznie:
-1. Sprawdza bieżący typ kolumny `query` w tabeli.
-2. Zabezpiecza kopię zapasową tabeli jako `..._bad_schema` (z obsługą ograniczenia bufora streamingowego BigQuery – jeśli `ALTER TABLE RENAME` jest zablokowane przez streaming buffer, wykonuje atomowy snapshot CTAS).
-3. Tworzy nową tabelę z poprawnym typem kolumny `query: STRING`.
-4. Rekompiluje widoki analityczne w BigQuery.
-5. (Opcjonalnie) Umożliwia natychmiastowe wsteczne zaingestowanie danych z ostatnich N dni (`--backfill-days 30`).
+1. Konfiguruje regułę wykluczenia `exclude-search-queries` na zlewie Cloud Logging.
+2. Weryfikuje i dostosowuje tabelę BigQuery do typu `RECORD` (obsługując ewentualne ograniczenia bufora streamingowego).
+3. Rekompiluje widoki analityczne w BigQuery.
+4. (Opcjonalnie) Umożliwia natychmiastowe wsteczne zaingestowanie danych z ostatnich N dni (`--backfill-days 30`).
 
-#### Rozwiązanie Manualne w Konsoli BigQuery (SQL):
-Jeśli administrator woli wykonać operację bezpośrednio w konsoli BigQuery SQL Workspace:
-
-```sql
--- Krok 1: Wykonanie snapshotu / kopii zapasowej dotychczasowej tabeli
-CREATE OR REPLACE TABLE `<PROJECT_ID>.gemini_enterprise_telemetry.discoveryengine_googleapis_com_gemini_enterprise_user_activity_bad_schema`
-AS SELECT * FROM `<PROJECT_ID>.gemini_enterprise_telemetry.discoveryengine_googleapis_com_gemini_enterprise_user_activity`;
-
--- Krok 2: Usunięcie tabeli z niepoprawnym schematem
-DROP TABLE `<PROJECT_ID>.gemini_enterprise_telemetry.discoveryengine_googleapis_com_gemini_enterprise_user_activity`;
-```
-*(Uwaga: `ALTER TABLE ... RENAME TO ...` może zakończyć się błędem `Cannot rename ... because it has streaming data` jeśli do tabeli wpadały niedawno logi. Dlatego procedura CTAS + DROP jest w 100% niezawodna).*
-
-Po wykonaniu powyższego Cloud Logging natychmiast automatycznie utworzy tabelę z poprawnym schematem lub można uruchomić instalator:
-```bash
-python3 scripts/fix_user_activity_schema.py --project <PROJECT_ID>
-```
+Alternatywnie wystarczy uruchomić redeployment (`./deploy.sh <ENGINE_ID>`), który automatycznie zaktualizuje konfigurację zlewu i widoków.
 
 
