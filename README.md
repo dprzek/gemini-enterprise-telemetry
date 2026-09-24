@@ -69,6 +69,15 @@ cd gemini-enterprise-telemetry
 > - Wdraża bezserwerowy automat **Auto-Observability Enabler** (Cloud Run Function 2nd gen podłączona pod zdarzenia audytowe `CreateAgent` przez Pub/Sub), który w czasie rzeczywistym włącza obserwowalność dla każdego nowo tworzonego agenta Low-Code w organizacji (oraz synchronizuje istniejących agentów) przy zerowym koszcie (\$0.00 USD w ramach Free Tier).
 > - Buduje i wdraża agenta ADK do Vertex AI Reasoning Engine w regionie `europe-west1` oraz rejestruje go w aplikacji w trybie prywatnym (`RESTRICTED` - dostęp ma tylko wdrażający; opcjonalnie `--share-with-all-users`).
 
+> [!TIP]
+> **Pełna Idempotencja Wdrożenia (Safe Re-deployment & CI/CD Ready)**
+> Cały pakiet jest w 100% idempotentny — instalator można uruchamiać wielokrotnie na tym samym projekcie bez ryzyka awarii, konfliktów czy duplikacji zasobów:
+> - **Infrastruktura GCP (Pub/Sub, BigQuery, Cloud Logging)**: Weryfikuje istnienie zasobów przed utworzeniem (`describe`) i aktualizuje konfigurację w locie.
+> - **Uprawnienia i Konta IAM**: Nadawanie ról (`add-iam-policy-binding`) jest z natury idempotentne i nie generuje błędów `ALREADY_EXISTS`.
+> - **Cloud Run Function (`ge-auto-observability-enabler`)**: Ponowne wdrożenie tworzy nową bezprzerwową rewizję i automatycznie przełącza ruch (`--quiet`).
+> - **Wsteczna synchronizacja agentów**: Sprawdza status każdego agenta w silniku i modyfikuje (`PATCH`) wyłącznie tych, którzy nie mają jeszcze aktywnej flagi obserwowalności.
+> - **Vertex AI Reasoning Engine**: Rozpoznaje aktywny silnik, przeprowadza health-check i podłącza się do niego bez długiego ponownego budowania kontenera (chyba że podano flagę `--recreate`).
+
 Szczegółowy podręcznik procedur wdrożeniowych krok po kroku znajduje się w [MANUAL.md](MANUAL.md).
 
 ---
