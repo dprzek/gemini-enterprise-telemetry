@@ -121,9 +121,14 @@ def ensure_required_apis(project_id):
         "monitoring.googleapis.com",
         "cloudtrace.googleapis.com",
         "cloudresourcemanager.googleapis.com",
-        "cloudbuild.googleapis.com"
+        "cloudbuild.googleapis.com",
+        "pubsub.googleapis.com",
+        "cloudfunctions.googleapis.com",
+        "run.googleapis.com",
+        "eventarc.googleapis.com",
+        "artifactregistry.googleapis.com"
     ]
-    print("--> [1/7] Weryfikacja i aktywacja wymaganych interfejsów API Google Cloud...")
+    print("--> [1/8] Weryfikacja i aktywacja wymaganych interfejsów API Google Cloud...")
     try:
         # Szybkie sprawdzenie już aktywnych API, by nie czekać bezczynnie
         cmd_check = ["gcloud", "services", "list", f"--project={project_id}", "--enabled", "--format=value(config.name)"]
@@ -160,7 +165,7 @@ def enable_engine_observability(project_id, location, engine_id, token, enable_s
     na bramce Cloud Logging.
     """
     mode_label = "OpenTelemetry + Identity Attribution" if enable_sensitive_logging else "OpenTelemetry (Anonymized / <elided>)"
-    print(f"--> [2/7] Konfiguracja obserwowalności silnika '{engine_id}' [{mode_label}]...")
+    print(f"--> [2/8] Konfiguracja obserwowalności silnika '{engine_id}' [{mode_label}]...")
     api_host = f"{location}-discoveryengine.googleapis.com" if location != "global" else "discoveryengine.googleapis.com"
     engine_url = f"https://{api_host}/v1alpha/projects/{project_id}/locations/{location}/collections/default_collection/engines/{engine_id}"
     
@@ -211,7 +216,7 @@ def setup_governance_exclusion_filter(project_id, token, filter_name="drop-gemin
     odpowiedzi i fragmentów dokumentów M365 (gen_ai.choice) w Cloud Logging,
     przy jednoczesnym zachowaniu tożsamości użytkowników i metryk operacyjnych.
     """
-    print(f"--> [3a/7] Konfiguracja Enterprise Governance Exclusion Filter w Cloud Logging...")
+    print(f"--> [3a/8] Konfiguracja Enterprise Governance Exclusion Filter w Cloud Logging...")
     url = f"https://logging.googleapis.com/v2/projects/{project_id}/sinks/_Default?updateMask=exclusions"
     headers = {
         "Authorization": f"Bearer {token}",
@@ -253,7 +258,7 @@ def setup_governance_exclusion_filter(project_id, token, filter_name="drop-gemin
 
 def setup_bigquery_and_sink(project_id, location, dataset_id, sink_name="gemini-enterprise-telemetry-sink"):
     """Tworzy zbiór BigQuery, zlew Cloud Logging oraz nadaje uprawnienia kontu serwisowemu."""
-    print(f"--> [3/7] Konfiguracja zbioru BigQuery '{dataset_id}' i zlewu logów...")
+    print(f"--> [3/8] Konfiguracja zbioru BigQuery '{dataset_id}' i zlewu logów...")
     bq_client = bigquery.Client(project=project_id)
     
     # 1. Zbiór danych BigQuery
@@ -365,7 +370,7 @@ def setup_bigquery_and_sink(project_id, location, dataset_id, sink_name="gemini-
 
 def deploy_sql_views(bq_client, project_id, dataset_id):
     """Wdraża analityczne widoki SQL w BigQuery z dynamicznym podstawieniem parametrów."""
-    print("--> [5/7] Wdrażanie analitycznych widoków SQL w BigQuery...")
+    print("--> [5/8] Wdrażanie analitycznych widoków SQL w BigQuery...")
     # Gwarancja istnienia i spójności tabel oraz kolumn przed utworzeniem widoków
     init_streaming_tables(bq_client, project_id, dataset_id)
 
@@ -380,7 +385,7 @@ def deploy_sql_views(bq_client, project_id, dataset_id):
 
 def deploy_monitoring_dashboard(project_id):
     """Tworzy dashboard operacyjny w Cloud Monitoring, jeśli jeszcze nie istnieje."""
-    print("--> [6/7] Sprawdzanie dashboardu w Cloud Monitoring...")
+    print("--> [6/8] Sprawdzanie dashboardu w Cloud Monitoring...")
     try:
         res = subprocess.run(["gcloud", "monitoring", "dashboards", "list", f"--project={project_id}", "--format=value(displayName)"], stdout=subprocess.PIPE, text=True)
         if "Gemini Enterprise" in res.stdout:
@@ -414,7 +419,7 @@ def ensure_client_dependencies():
 
 def deploy_telemetry_agent(project_id, location, engine_id, dataset_id="gemini_enterprise_telemetry", reasoning_engine=None, recreate=False, share_with_all_users=False):
     """Wdraża dynamicznego Agenta ADK w Vertex AI Agent Runtime i rejestruje w Gemini Enterprise."""
-    print("--> [7/7] Wdrażanie Agenta Telemetrii w Gemini Enterprise (Dynamic ADK Agent na Vertex AI Agent Runtime)...")
+    print("--> [7/8] Wdrażanie Agenta Telemetrii w Gemini Enterprise (Dynamic ADK Agent na Vertex AI Agent Runtime)...")
     agent_script = os.path.join(os.path.dirname(__file__), "agent", "deploy_adk_agent.py")
     cmd = [
         sys.executable, agent_script,
@@ -451,6 +456,8 @@ def main():
                         help="Włącza przypisywanie tożsamości w obserwowalności silnika (domyślnie włączone w połączeniu z Exclusion Filter)")
     parser.add_argument("--share-with-all-users", action="store_true", default=False,
                         help="Udostępnia agenta telemetrii wszystkim użytkownikom w organizacji (ALL_USERS). Domyślnie agent jest prywatny (RESTRICTED - widoczny tylko dla wdrażającego)")
+    parser.add_argument("--skip-auto-observability", action="store_true", default=False,
+                        help="Pomiń wdrażanie automatu włączania obserwowalności (Auto-Observability Enabler) dla nowo tworzonych agentów")
     args = parser.parse_args()
 
     project_id = args.project or os.environ.get("GOOGLE_CLOUD_PROJECT") or get_default_project()
@@ -501,10 +508,10 @@ def main():
 
     # 4. Wsteczna ingestja logów (Backfill)
     if not args.skip_backfill:
-        print("--> [4/7] Wsteczna ingestja logów z ostatnich 30 dni...")
+        print("--> [4/8] Wsteczna ingestja logów z ostatnich 30 dni...")
         run_backfill(bq_client, project_id, dataset_id, days=30)
     else:
-        print("--> [4/7] Pominięto wsteczną ingestję logów (--skip-backfill).")
+        print("--> [4/8] Pominięto wsteczną ingestję logów (--skip-backfill).")
 
     # 5. Widoki SQL
     deploy_sql_views(bq_client, project_id, dataset_id)
@@ -519,6 +526,13 @@ def main():
         recreate=args.recreate,
         share_with_all_users=args.share_with_all_users
     )
+
+    # 8. Auto-Observability Enabler (Event-Driven dla nowo tworzonych agentów)
+    if not args.skip_auto_observability:
+        from scripts.setup_auto_observability import setup_auto_observability_enabler
+        setup_auto_observability_enabler(project_id, location, engine_id)
+    else:
+        print("--> [8/8] Pominięto konfigurację automatu obserwowalności (--skip-auto-observability).")
 
     print("\n======================================================================")
     print("✔ Wdrożenie zakończone pełnym sukcesem! Wszystkie komponenty są aktywne.")

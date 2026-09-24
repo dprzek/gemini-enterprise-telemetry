@@ -66,6 +66,7 @@ cd gemini-enterprise-telemetry
 > - Tworzy zbiór danych BigQuery w lokalizacji `EU`, zlew logów i nadaje uprawnienia IAM.
 > - Przeprowadza idempotentny backfill historii i kompiluje zdeduplikowane widoki SQL.
 > - Tworzy dashboard operacyjny w Cloud Monitoring.
+> - Wdraża bezserwerowy automat **Auto-Observability Enabler** (Cloud Run Function 2nd gen podłączona pod zdarzenia audytowe `CreateAgent` przez Pub/Sub), który w czasie rzeczywistym włącza obserwowalność dla każdego nowo tworzonego agenta Low-Code w organizacji (oraz synchronizuje istniejących agentów) przy zerowym koszcie (\$0.00 USD w ramach Free Tier).
 > - Buduje i wdraża agenta ADK do Vertex AI Reasoning Engine w regionie `europe-west1` oraz rejestruje go w aplikacji w trybie prywatnym (`RESTRICTED` - dostęp ma tylko wdrażający; opcjonalnie `--share-with-all-users`).
 
 Szczegółowy podręcznik procedur wdrożeniowych krok po kroku znajduje się w [MANUAL.md](MANUAL.md).

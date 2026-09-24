@@ -79,6 +79,16 @@ curl -X PATCH \
   }'
 ```
 
+#### 2.1.1 Automat Auto-Observability Enabler dla Agentów Użytkownika (Event-Driven)
+Domyślnie nowo tworzeni w interfejsie Gemini Enterprise agenci Low-Code (`Agent`) mają flagę `observabilityConfig` niezdefiniowaną (`null`), przez co zapytania kierowane bezpośrednio do nich nie emitują zdarzeń `StreamAssist` ani tokenów do Cloud Logging.
+
+Aby administrator nie musiał ręcznie włączać obserwowalności dla każdego nowego agenta, instalator wdraża bezserwerowy automat oparty na architekturze Event-Driven:
+1. **Cloud Audit Logs**: Gdy użytkownik tworzy nowego agenta przez UI lub API, Google Cloud generuje wpis audytowy `cloudaudit.googleapis.com/activity` z metodą `google.cloud.discoveryengine.v1main.AgentService.CreateAgent`.
+2. **Cloud Logging Sink**: Zlew `gemini-enterprise-agent-events-sink` natychmiast przekazuje ten wpis do tematu Cloud Pub/Sub `gemini-enterprise-agent-events`.
+3. **Cloud Run Function (2nd gen)**: Funkcja `ge-auto-observability-enabler` odbiera powiadomienie, pobiera identyfikator nowo utworzonego agenta i asynchronicznie wykonuje wywołanie `PATCH .../agents/{agent_id}?updateMask=observabilityConfig` z wartością `observabilityConfig.observabilityEnabled: true`.
+4. **Wsteczna synchronizacja (Reconciliation)**: Podczas instalacji moduł natychmiast sprawdza wszystkich dotychczas istniejących agentów w silniku i włącza flagę obserwowalności na każdym z nich.
+5. **Koszt operacyjny**: **\$0.00 USD / miesiąc**. Wszystkie elementy (Admin Activity Audit Logs, Pub/Sub do 10 GB, Cloud Run do 2M wywołań miesięcznie) mieszczą się w całości w bezpłatnym pakiecie *Google Cloud Always Free Tier*.
+
 ---
 
 ### 2.2 Dostęp do Śladów i Spanów OpenTelemetry ([Oficjalna Dokumentacja](https://cloud.google.com/gemini/enterprise/docs/access-traces-and-spans) / [Devsite](https://clouddocs.devsite.corp.google.com/gemini/enterprise/docs/access-traces-and-spans))
