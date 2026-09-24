@@ -14,6 +14,7 @@ Uruchamia kompletne wdrożenie "Zero-Touch" w jednym poleceniu:
 import sys
 import os
 import json
+import time
 import argparse
 import subprocess
 import urllib.request
@@ -138,14 +139,15 @@ def ensure_required_apis(project_id):
             subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             print("    ✔ Wymagane API Google Cloud zostały aktywowane.")
         
-        # Zapewnienie tożsamości usługi Vertex AI (Service Identity) dla nowych projektów
-        try:
-            subprocess.run(
-                ["gcloud", "beta", "services", "identity", "create", "--service=aiplatform.googleapis.com", f"--project={project_id}"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
-            )
-        except Exception:
-            pass
+        # Zapewnienie tożsamości usług dla Vertex AI oraz Cloud Logging dla nowych projektów
+        for svc in ["aiplatform.googleapis.com", "logging.googleapis.com"]:
+            try:
+                subprocess.run(
+                    ["gcloud", "beta", "services", "identity", "create", f"--service={svc}", f"--project={project_id}"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
+                )
+            except Exception:
+                pass
     except Exception as e:
         print(f"    (Weryfikacja API: {e})")
 
@@ -323,7 +325,41 @@ def setup_bigquery_and_sink(project_id, location, dataset_id, sink_name="gemini-
     if not any(getattr(e, "entity_id", None) == writer_sa for e in entries):
         entries.append(bigquery.AccessEntry(role="roles/bigquery.dataEditor", entity_type="userByEmail", entity_id=writer_sa))
         dataset.access_entries = entries
-        bq_client.update_dataset(dataset, ["access_entries"])
+        
+        # W nowo tworzonych projektach GCP konto serwisowe zlewu (gcp-sa-logging)
+        # jest powoływane w locie i wymaga kilku sekund na propagację tożsamości w katalogu IAM.
+        max_attempts = 6
+        for attempt in range(1, max_attempts + 1):
+            try:
+                bq_client.update_dataset(dataset, ["access_entries"])
+                break
+            except Exception as e:
+                err_str = str(e)
+                if ("does not exist" in err_str or "400" in err_str) and attempt < max_attempts:
+                    sleep_sec = 3 * attempt
+                    print(f"    [*] Oczekiwanie na propagację tożsamości IAM konta zlewu ({writer_sa}) w BigQuery (próba {attempt}/{max_attempts}, ponowienie za {sleep_sec}s)...")
+                    time.sleep(sleep_sec)
+                    try:
+                        dataset = bq_client.get_dataset(ds_ref)
+                        entries = list(dataset.access_entries)
+                        if not any(getattr(e, "entity_id", None) == writer_sa for e in entries):
+                            entries.append(bigquery.AccessEntry(role="roles/bigquery.dataEditor", entity_type="userByEmail", entity_id=writer_sa))
+                        dataset.access_entries = entries
+                    except Exception:
+                        pass
+                else:
+                    # Fallback: nadanie uprawnienia na poziomie projektu przez gcloud
+                    print(f"    [*] Nadanie uprawnień BigQuery Data Editor dla konta zlewu na poziomie projektu...")
+                    res = subprocess.run([
+                        "gcloud", "projects", "add-iam-policy-binding", project_id,
+                        f"--member={writer_identity}",
+                        "--role=roles/bigquery.dataEditor",
+                        "--condition=None",
+                        "--quiet"
+                    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    if res.returncode == 0:
+                        break
+                    raise
     print("    ✔ Zlew Cloud Logging i uprawnienia zostały pomyślnie skonfigurowane.")
     return bq_client
 
