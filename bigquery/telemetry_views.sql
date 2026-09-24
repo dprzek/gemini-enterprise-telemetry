@@ -135,7 +135,8 @@ raw_user_events AS (
       CASE
         WHEN COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.methodname"), "") IN ("StreamAssist", "Assist")
          AND (
-           COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.agentspaceinfo.agentspacepagetype"), "") = "image-generation"
+           REGEXP_CONTAINS(LOWER(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.modelinfo.model"), "")), r"(image|imagen)")
+           OR COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.agentspaceinfo.agentspacepagetype"), "") = "image-generation"
            OR REGEXP_CONTAINS(LOWER(TO_JSON_STRING(jsonPayload)), r"(wygeneruj|stwórz|utwórz|zrób|generuj|generate|create|draw|narysuj|namaluj|paint)\s+(obraz|obrazek|grafik|zdjęci|image|picture|photo|illustration)")
            OR REGEXP_CONTAINS(LOWER(TO_JSON_STRING(jsonPayload)), r'"(obrazek|obraz|image|zdjęcie)\s+')
            OR LOWER(TO_JSON_STRING(jsonPayload)) LIKE "%image-generation%"
@@ -159,7 +160,8 @@ raw_user_events AS (
            ) != ""
          )
          AND NOT (
-           COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.agentspaceinfo.agentspacepagetype"), "") = "image-generation"
+           REGEXP_CONTAINS(LOWER(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.modelinfo.model"), "")), r"(image|imagen)")
+           OR COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.agentspaceinfo.agentspacepagetype"), "") = "image-generation"
            OR REGEXP_CONTAINS(LOWER(TO_JSON_STRING(jsonPayload)), r"(wygeneruj|stwórz|utwórz|zrób|generuj|generate|create|draw|narysuj|namaluj|paint)\s+(obraz|obrazek|grafik|zdjęci|image|picture|photo|illustration)")
            OR REGEXP_CONTAINS(LOWER(TO_JSON_STRING(jsonPayload)), r'"(obrazek|obraz|image|zdjęcie)\s+')
            OR LOWER(TO_JSON_STRING(jsonPayload)) LIKE "%image-generation%"
@@ -220,7 +222,8 @@ raw_user_events AS (
       CASE
         WHEN method_name IN ("StreamAssist", "Assist")
          AND (
-           page_type = "image-generation" 
+           REGEXP_CONTAINS(LOWER(raw_payload), r'"model"\s*:\s*"[^"]*(image|imagen)[^"]*"')
+           OR page_type = "image-generation" 
            OR REGEXP_CONTAINS(LOWER(raw_payload), r"(wygeneruj|stwórz|utwórz|zrób|generuj|generate|create|draw|narysuj|namaluj|paint)\s+(obraz|obrazek|grafik|zdjęci|image|picture|photo|illustration)")
            OR REGEXP_CONTAINS(LOWER(raw_payload), r'"(obrazek|obraz|image|zdjęcie)\s+')
            OR LOWER(raw_payload) LIKE "%image-generation%"
@@ -229,15 +232,16 @@ raw_user_events AS (
       END AS is_image_generation,
       CASE 
         WHEN method_name IN ("StreamAssist", "Assist") 
-         AND NOT (agent_id = "deep_research" OR raw_payload LIKE "%agents/deep_research%")
-         AND (agent_id IS NULL OR agent_id = "")
-         AND REGEXP_EXTRACT(raw_payload, r"/agents/([0-9a-zA-Z_\-]+)") IS NULL
-         AND NOT (
-           page_type = "image-generation" 
-           OR REGEXP_CONTAINS(LOWER(raw_payload), r"(wygeneruj|stwórz|utwórz|zrób|generuj|generate|create|draw|narysuj|namaluj|paint)\s+(obraz|obrazek|grafik|zdjęci|image|picture|photo|illustration)")
-           OR REGEXP_CONTAINS(LOWER(raw_payload), r'"(obrazek|obraz|image|zdjęcie)\s+')
-           OR LOWER(raw_payload) LIKE "%image-generation%"
-         ) THEN 1 
+        AND NOT (agent_id = "deep_research" OR raw_payload LIKE "%agents/deep_research%")
+        AND (agent_id IS NULL OR agent_id = "")
+        AND REGEXP_EXTRACT(raw_payload, r"/agents/([0-9a-zA-Z_\-]+)") IS NULL
+        AND NOT (
+          REGEXP_CONTAINS(LOWER(raw_payload), r'"model"\s*:\s*"[^"]*(image|imagen)[^"]*"')
+          OR page_type = "image-generation" 
+          OR REGEXP_CONTAINS(LOWER(raw_payload), r"(wygeneruj|stwórz|utwórz|zrób|generuj|generate|create|draw|narysuj|namaluj|paint)\s+(obraz|obrazek|grafik|zdjęci|image|picture|photo|illustration)")
+          OR REGEXP_CONTAINS(LOWER(raw_payload), r'"(obrazek|obraz|image|zdjęcie)\s+')
+          OR LOWER(raw_payload) LIKE "%image-generation%"
+        ) THEN 1 
         ELSE 0 
       END AS is_assistant_query,
       CASE
@@ -540,7 +544,8 @@ FROM (
        ) THEN "Deep Research"
       WHEN COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.methodname"), "") IN ("StreamAssist", "Assist")
        AND (
-         COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.agentspaceinfo.agentspacepagetype"), "") = "image-generation"
+         REGEXP_CONTAINS(LOWER(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.modelinfo.model"), "")), r"(image|imagen)")
+         OR COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.agentspaceinfo.agentspacepagetype"), "") = "image-generation"
          OR REGEXP_CONTAINS(LOWER(TO_JSON_STRING(jsonPayload)), r"(wygeneruj|stwórz|utwórz|zrób|generuj|generate|create|draw|narysuj|namaluj|paint)\s+(obraz|obrazek|grafik|zdjęci|image|picture|photo|illustration)")
          OR REGEXP_CONTAINS(LOWER(TO_JSON_STRING(jsonPayload)), r'"(obrazek|obraz|image|zdjęcie)\s+')
          OR LOWER(TO_JSON_STRING(jsonPayload)) LIKE "%image-generation%"
@@ -581,7 +586,8 @@ FROM (
        AND (agent_id = "deep_research" OR raw_payload LIKE "%agents/deep_research%") THEN "Deep Research"
       WHEN method_name IN ("StreamAssist", "Assist") 
        AND (
-         page_type = "image-generation" 
+         REGEXP_CONTAINS(LOWER(raw_payload), r'"model"\s*:\s*"[^"]*(image|imagen)[^"]*"')
+         OR page_type = "image-generation" 
          OR REGEXP_CONTAINS(LOWER(raw_payload), r"(wygeneruj|stwórz|utwórz|zrób|generuj|generate|create|draw|narysuj|namaluj|paint)\s+(obraz|obrazek|grafik|zdjęci|image|picture|photo|illustration)")
          OR REGEXP_CONTAINS(LOWER(raw_payload), r'"(obrazek|obraz|image|zdjęcie)\s+')
          OR LOWER(raw_payload) LIKE "%image-generation%"
