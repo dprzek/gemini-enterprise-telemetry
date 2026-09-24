@@ -78,12 +78,12 @@ def main():
                         print("Brak wpisów dziennej aktywności dla podanych kryteriów.")
                     return
                 print(f"\n=== Raport Dziennej Utylizacji Użytkownika ({len(results)} wpisów dziennych) ===")
-                print(f"{'Data':<12} | {'Identyfikator Użytkownika':<28} | {'Zdarzenia':<9} | {'Zapytania':<9} | {'Obrazy':<7} | {'Deep Rsrch':<10} | {'Agenty':<7} | {'Wywoł. Autora':<13} | {'Wywoł. w Org':<13} | {'Tokeny':<9}")
-                print("-" * 168)
+                print(f"{'Data':<12} | {'Identyfikator Użytkownika':<28} | {'Zdarzenia':<9} | {'Zapytania':<9} | {'Obrazy':<7} | {'Deep Rsrch':<10} | {'Agenty':<7} | {'Edycje':<7} | {'Odsłony':<7} | {'Wywoł. Autora':<13} | {'Wywoł. w Org':<13} | {'Tokeny':<9}")
+                print("-" * 184)
                 for r in results:
                     author_call = f"{r.get('author_agent_invocations', 0)} ({r.get('author_agent_sessions', 0)})"
                     org_call = f"{r.get('org_agent_invocations', 0)} ({r.get('org_agent_sessions', 0)}/{r.get('org_agent_unique_callers', 0)})"
-                    print(f"{r['activity_date']:<12} | {r['user_id']:<28} | {r['total_events']:<9} | {r['assistant_queries']:<9} | {r.get('images_generated', 0):<7} | {r['deep_research_count']:<10} | {r['agents_created']:<7} | {author_call:<13} | {org_call:<13} | {r['total_tokens']:<9,}")
+                    print(f"{r['activity_date']:<12} | {r['user_id']:<28} | {r['total_events']:<9} | {r['assistant_queries']:<9} | {r.get('images_generated', 0):<7} | {r['deep_research_count']:<10} | {r['agents_created']:<7} | {r.get('agent_updates', 0):<7} | {r.get('agent_views', 0):<7} | {author_call:<13} | {org_call:<13} | {r['total_tokens']:<9,}")
         else:
             order = "asc" if args.bottom else args.order
             limit = args.bottom or args.limit
@@ -99,12 +99,12 @@ def main():
                     return
                 header_title = f"Najmniej Aktywnych Użytkowników (Bottom {len(results)})" if (args.bottom or order == "asc") else f"Zbiorcze Podsumowanie Utylizacji Użytkowników ({len(results)} użytkowników)"
                 print(f"\n=== {header_title} ===")
-                print(f"{'Identyfikator Użytkownika':<28} | {'Aktywne Dni':<11} | {'Zdarzenia':<9} | {'Zapytania':<9} | {'Obrazy':<7} | {'Deep Rsrch':<10} | {'Agenty':<7} | {'Wywoł. Autora':<13} | {'Wywoł. w Org':<13} | {'Tokeny':<9}")
-                print("-" * 168)
+                print(f"{'Identyfikator Użytkownika':<28} | {'Aktywne Dni':<11} | {'Zdarzenia':<9} | {'Zapytania':<9} | {'Obrazy':<7} | {'Deep Rsrch':<10} | {'Agenty':<7} | {'Edycje':<7} | {'Odsłony':<7} | {'Wywoł. Autora':<13} | {'Wywoł. w Org':<13} | {'Tokeny':<9}")
+                print("-" * 184)
                 for r in results:
                     author_call = f"{r.get('author_agent_invocations', 0)} ({r.get('author_agent_sessions', 0)})"
                     org_call = f"{r.get('org_agent_invocations', 0)} ({r.get('org_agent_sessions', 0)}/{r.get('org_agent_unique_callers', 0)})"
-                    print(f"{r['user_id']:<28} | {r['active_days']:<11} | {r['total_events']:<9} | {r['assistant_queries']:<9} | {r.get('images_generated', 0):<7} | {r['deep_research_count']:<10} | {r['agents_created']:<7} | {author_call:<13} | {org_call:<13} | {r['total_tokens']:<9,}")
+                    print(f"{r['user_id']:<28} | {r['active_days']:<11} | {r['total_events']:<9} | {r['assistant_queries']:<9} | {r.get('images_generated', 0):<7} | {r['deep_research_count']:<10} | {r['agents_created']:<7} | {r.get('agent_updates', 0):<7} | {r.get('agent_views', 0):<7} | {author_call:<13} | {org_call:<13} | {r['total_tokens']:<9,}")
                 print("\nWskazówka: Dodaj flagę '--daily', aby zobaczyć aktywność każdego użytkownika dzień po dniu.")
 
     elif args.command == "adoption":

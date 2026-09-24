@@ -12,6 +12,7 @@ agent_creators AS (
   SELECT
     agent_id,
     author_user_id,
+    COALESCE(MAX(agent_display_name), "") AS agent_display_name,
     MIN(created_at) AS created_at
   FROM (
     SELECT
@@ -20,6 +21,11 @@ agent_creators AS (
         JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.responseJson.name"),
         TO_JSON_STRING(protopayload_auditlog)
       ), r"/agents/([0-9a-zA-Z_\-]+)") AS agent_id,
+      COALESCE(
+        JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.request.agent.displayName"),
+        JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.response.displayName"),
+        ""
+      ) AS agent_display_name,
       COALESCE(
         NULLIF(principal_email, ""),
         NULLIF(JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.authenticationInfo.principalEmail"), ""),
@@ -40,6 +46,10 @@ agent_creators AS (
         NULLIF(agent_id, ""),
         REGEXP_EXTRACT(raw_payload, r"/agents/([0-9a-zA-Z_\-]+)")
       ) AS agent_id,
+      COALESCE(
+        REGEXP_EXTRACT(raw_payload, r'"displayName":\s*"([^"]+)"'),
+        ""
+      ) AS agent_display_name,
       COALESCE(NULLIF(NULLIF(TRIM(user_iam_principal), "<elided>"), ""), "unknown") AS author_user_id,
       timestamp AS created_at
     FROM `{project_id}.{dataset_id}.gemini_enterprise_user_activity`
@@ -53,6 +63,12 @@ agent_creators AS (
         REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.agent.name"), ""), r"/agents/([0-9a-zA-Z_\-]+)"),
         REGEXP_EXTRACT(TO_JSON_STRING(jsonPayload), r"/agents/([0-9a-zA-Z_\-]+)")
       ) AS agent_id,
+      COALESCE(
+        JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.agent.displayName"),
+        JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.displayName"),
+        JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userEvent.agentspaceInfo.agentInfo.name"),
+        ""
+      ) AS agent_display_name,
       COALESCE(
         NULLIF(NULLIF(TRIM(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.useriamprincipal")), "<elided>"), ""),
         NULLIF(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.userpseudoid"), ""),
@@ -89,10 +105,16 @@ raw_user_events AS (
       COALESCE(
         NULLIF(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.agentsspec.agentspecs[0].agentid"), ""),
         NULLIF(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.agentsspec.agentspecs.agentid"), ""),
+        NULLIF(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.agentspaceinfo.agentinfo.agentid"), ""),
         REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.agentinfo.agent"), ""), r"/agents/([^/]+)"),
         REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.agentspaceinfo.agent"), ""), r"/agents/([^/]+)"),
         ""
       ) AS called_agent_id,
+      COALESCE(
+        JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.agentinfo.displayname"),
+        JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.agentspaceinfo.agentinfo.name"),
+        ""
+      ) AS agent_display_name,
       COALESCE(
         REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.answer.name"), ""), r"/sessions/([^/]+)"),
         REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.parent"), ""), r"/sessions/([^/]+)"),
@@ -185,7 +207,11 @@ raw_user_events AS (
         REGEXP_EXTRACT(raw_payload, r"/agents/([0-9a-zA-Z_\-]+)"),
         ""
       ) AS called_agent_id,
-      REGEXP_EXTRACT(COALESCE(raw_payload, ""), r"sessions/([0-9]+)") AS session_id,
+      COALESCE(
+        REGEXP_EXTRACT(raw_payload, r'"displayName":\s*"([^"]+)"'),
+        ""
+      ) AS agent_display_name,
+      REGEXP_EXTRACT(COALESCE(raw_payload, ""), r"sessions/([^/\"'\s]+)") AS session_id,
       CASE 
         WHEN method_name IN ("StreamAssist", "Assist") 
          AND (agent_id = "deep_research" OR raw_payload LIKE "%agents/deep_research%") THEN 1 
@@ -238,10 +264,11 @@ aggregated_user_events AS (
     user_id,
     COUNT(*) AS total_events,
     SUM(is_assistant_query) AS assistant_queries,
-    COALESCE(COUNT(DISTINCT CASE WHEN is_deep_research = 1 THEN session_id END), 0) AS deep_research_count,
+    COALESCE(COUNT(DISTINCT CASE WHEN is_deep_research = 1 THEN NULLIF(session_id, "") END), 0) AS deep_research_count,
     SUM(is_image_generation) AS images_generated,
     SUM(is_custom_agent_created) AS agents_created,
     COUNTIF(method_name = "UpdateAgent") AS agent_updates,
+    COUNTIF(method_name = "WriteUserEvent" AND page_type = "agent") AS agent_views,
     COUNTIF(method_name = "WriteUserEvent") AS ui_page_views,
     SUM(is_error_event) AS failed_requests,
     MIN(timestamp) AS first_event,
@@ -254,9 +281,9 @@ agent_usage_events AS (
     c.activity_date,
     a.author_user_id AS user_id,
     COUNTIF(c.user_id = a.author_user_id) AS author_agent_invocations,
-    COUNT(DISTINCT CASE WHEN c.user_id = a.author_user_id AND c.session_id IS NOT NULL THEN c.session_id END) AS author_agent_sessions,
+    COUNT(DISTINCT CASE WHEN c.user_id = a.author_user_id AND NULLIF(c.session_id, "") IS NOT NULL THEN c.session_id END) AS author_agent_sessions,
     COUNT(*) AS org_agent_invocations,
-    COUNT(DISTINCT c.session_id) AS org_agent_sessions,
+    COUNT(DISTINCT NULLIF(c.session_id, "")) AS org_agent_sessions,
     COUNT(DISTINCT c.user_id) AS org_agent_unique_callers
   FROM raw_user_events c
   JOIN agent_creators a ON c.called_agent_id = a.agent_id
@@ -264,6 +291,12 @@ agent_usage_events AS (
     AND c.called_agent_id != ""
     AND c.called_agent_id != "deep_research"
     AND c.is_error_event = 0
+    AND NOT (
+      LOWER(COALESCE(c.agent_display_name, "")) LIKE "%telemetry%"
+      OR LOWER(COALESCE(c.agent_display_name, "")) LIKE "%adoption%"
+      OR LOWER(COALESCE(a.agent_display_name, "")) LIKE "%telemetry%"
+      OR LOWER(COALESCE(a.agent_display_name, "")) LIKE "%adoption%"
+    )
   GROUP BY 1, 2
 ),
 raw_audit AS (
@@ -283,7 +316,12 @@ raw_audit AS (
        AND NOT COALESCE(resource_name, JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.resourceName"), "") LIKE "%/agents/deep_research"
        AND COALESCE(SAFE_CAST(JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.status.code") AS INT64), 0) = 0 THEN 1 
       ELSE 0 
-    END AS is_custom_agent_created
+    END AS is_custom_agent_created,
+    CASE
+      WHEN COALESCE(method_name, JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.methodName"), "") LIKE "%UpdateAgent%"
+       AND COALESCE(SAFE_CAST(JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.status.code") AS INT64), 0) = 0 THEN 1
+      ELSE 0
+    END AS is_agent_updated
   FROM `{project_id}.{dataset_id}.cloudaudit_googleapis_com_activity`
   WHERE NOT COALESCE(
     NULLIF(principal_email, ""),
@@ -301,6 +339,7 @@ aggregated_audit AS (
     user_id,
     COUNT(*) AS audit_events,
     SUM(is_custom_agent_created) AS agents_created,
+    SUM(is_agent_updated) AS agent_updates,
     MIN(timestamp) AS first_audit,
     MAX(timestamp) AS last_audit
   FROM raw_audit
@@ -391,7 +430,8 @@ SELECT
   COALESCE(u.deep_research_count, 0) AS deep_research_count,
   COALESCE(u.images_generated, 0) AS images_generated,
   GREATEST(COALESCE(u.agents_created, 0), COALESCE(a.agents_created, 0)) AS agents_created,
-  COALESCE(u.agent_updates, 0) AS agent_updates,
+  GREATEST(COALESCE(u.agent_updates, 0), COALESCE(a.agent_updates, 0)) AS agent_updates,
+  COALESCE(u.agent_views, 0) AS agent_views,
   COALESCE(u.ui_page_views, 0) AS ui_page_views,
   COALESCE(u.failed_requests, 0) AS failed_requests,
   COALESCE(ag.author_agent_invocations, 0) AS author_agent_invocations,
@@ -439,6 +479,7 @@ SELECT
   SUM(images_generated) AS images_generated,
   SUM(agents_created) AS agents_created,
   SUM(agent_updates) AS agent_updates,
+  SUM(agent_views) AS agent_views,
   SUM(ui_page_views) AS ui_page_views,
   SUM(failed_requests) AS failed_requests,
   SUM(author_agent_invocations) AS author_agent_invocations,
@@ -466,6 +507,7 @@ SELECT
   SUM(images_generated) AS total_images_generated,
   SUM(agents_created) AS total_agents_created,
   SUM(agent_updates) AS total_agent_updates,
+  SUM(agent_views) AS total_agent_views,
   SUM(ui_page_views) AS total_ui_page_views,
   SUM(failed_requests) AS total_failed_requests,
   SUM(org_agent_invocations) AS total_custom_agent_invocations,

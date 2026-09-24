@@ -619,6 +619,8 @@ class GeminiEnterprise20TestSuite(unittest.TestCase):
             self.assertIn("org_agent_invocations", u)
             self.assertIn("org_agent_sessions", u)
             self.assertIn("org_agent_unique_callers", u)
+            self.assertIn("agent_updates", u)
+            self.assertIn("agent_views", u)
 
             # Weryfikacja nieujemności
             self.assertGreaterEqual(u["author_agent_invocations"], 0)
@@ -626,6 +628,8 @@ class GeminiEnterprise20TestSuite(unittest.TestCase):
             self.assertGreaterEqual(u["org_agent_invocations"], 0)
             self.assertGreaterEqual(u["org_agent_sessions"], 0)
             self.assertGreaterEqual(u["org_agent_unique_callers"], 0)
+            self.assertGreaterEqual(u["agent_updates"], 0)
+            self.assertGreaterEqual(u["agent_views"], 0)
 
             # Niezmiennik: wywołania w org muszą być >= wywołania autora
             self.assertGreaterEqual(
@@ -652,6 +656,8 @@ class GeminiEnterprise20TestSuite(unittest.TestCase):
             self.assertIn("org_agent_invocations", d)
             self.assertIn("org_agent_sessions", d)
             self.assertIn("org_agent_unique_callers", d)
+            self.assertIn("agent_updates", d)
+            self.assertIn("agent_views", d)
             self.assertGreaterEqual(d["org_agent_invocations"], d["author_agent_invocations"])
 
         # 3. Sprawdzenie get_daily_adoption
@@ -671,6 +677,8 @@ class GeminiEnterprise20TestSuite(unittest.TestCase):
         top_user = raw_adk_sum["users"][0]
         self.assertIn("author_agent_invocations", top_user)
         self.assertIn("org_agent_invocations", top_user)
+        self.assertIn("agent_updates", top_user)
+        self.assertIn("agent_views", top_user)
 
     def test_23_bottom_users_proposal_and_order(self):
         """Test 23: Weryfikacja wyjściowej propozycji Bottom 10 i sortowania najmniej aktywnych użytkowników."""
@@ -701,6 +709,8 @@ class GeminiEnterprise20TestSuite(unittest.TestCase):
             "deep_research_count",
             "images_generated",
             "agents_created",
+            "agent_updates",
+            "agent_views",
             "author_agent_sessions",
             "org_agent_sessions",
             "total_tokens",
@@ -716,6 +726,8 @@ class GeminiEnterprise20TestSuite(unittest.TestCase):
         self.assertIn("Zadań Deep Research", inst)
         self.assertIn("Wygenerowane obrazy", inst)
         self.assertIn("Utworzone agenty", inst)
+        self.assertIn("agent_updates", inst)
+        self.assertIn("agent_views", inst)
         self.assertIn("author_agent_sessions", inst)
         self.assertIn("org_agent_sessions", inst)
     def test_24_user_activity_schema_query_string_and_self_healing(self):

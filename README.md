@@ -77,13 +77,17 @@ Szczegółowy podręcznik procedur wdrożeniowych krok po kroku znajduje się w 
 Agent telemetrii (`Gemini Enterprise Telemetry & Adoption Agent`) korzysta z dynamicznych narzędzi Python i bezpośrednio odpytuje BigQuery oraz Cloud Monitoring API w czasie rzeczywistym. Możesz rozmawiać z nim w języku naturalnym:
 
 ### 🎯 Domyślna propozycja startowa i analiza adopcji (Bottom 10)
-- *"Dzień dobry / Cześć"* — Agent wita oficjalnym oświadczeniem o oferowanych metrykach i jako **wyjściową propozycję startową** natychmiast generuje tabelę **10 najmniej aktywnych użytkowników (Bottom 10)** w organizacji ze szczegółowymi statystykami użycia platformy, ułatwiając identyfikację obszarów wymagających szkoleń lub onboardingu.
+### 🎯 Domyślna propozycja startowa i analiza adopcji (Bottom 10)
+- *"Dzień dobry / Cześć"* — Agent wita oficjalnym oświadczeniem o oferowanych metrykach i jako **wyjściową propozycję startową** natychmiast generuje tabelę **10 najmniej aktywnych użytkowników (Bottom 10)** w organizacji ze szczegółowymi statystykami użycia platformy, ułatwiając identyfikację obszarów wymagających szkoleń lub onboardingu. Tabela zawiera 10 spójnych kolumn:
+  `| Użytkownik | Zapytania asystenta (czat) | Zadań Deep Research | Wygenerowane obrazy | Utworzone agenty | Edycje agentów (agent_updates) | Odsłony agentów (agent_views) | Czaty z agentami użytkownika (author_agent_sessions) | Czaty z agentami użytkownika (org_agent_sessions) | Konsumpcja tokenów |`
 - *"Pokaż najmniej aktywnych użytkowników (Bottom 10) ze statystykami użycia platformy."*
 - *"Którzy pracownicy potrzebują wsparcia adopcyjnego lub szkoleń z Gemini Enterprise?"*
 - *"Ilu użytkowników w ogóle nie korzysta z platformy (zerowa utylizacja)?"*
 
-### 🤖 Autorskie agenty użytkowników (użycie własne vs organizacja)
-- *"Ile razy jan.kowalski@twoja-firma.com korzystał ze swoich agentów, a ile razy używali ich inni pracownicy w organizacji?"*
+### 🤖 Autorskie agenty użytkowników (dwufazowy cykl życia i użycie własne vs organizacja)
+- *"Ile razy jan.kowalski@twoja-firma.com modyfikował i iterował prompt swojego agenta w edytorze (`agent_updates`)?"*
+- *"Ile razy wyświetlano kartę/profil agenta użytkownika (`agent_views`)?"*
+- *"Ile razy jan.kowalski@twoja-firma.com korzystał ze swoich agentów biznesowych, a ile razy używali ich inni pracownicy w organizacji?"*
 - *"W ilu sesjach/czatach autor używał własnych agentów, a w ilu cała organizacja?"*
 - *"Pokaż statystyki wywołań agentów stworzonych przez zespół analityczny w podziale na sesje autora i organizacji."*
 
@@ -107,6 +111,16 @@ Agent telemetrii (`Gemini Enterprise Telemetry & Adoption Agent`) korzysta z dyn
 ## 📊 Śledzone metryki
 
 > [!NOTE]
+> **Dwufazowy Model Cyklu Życia Agenta: Prototypowanie vs Konsumpcja Produkcyjna**
+> 1. **Faza Prototypowania (Agent Prototyping - stan `PRIVATE`)**:
+>    - Gdy użytkownik tworzy agenta w Agent Designerze, testowe tury w podglądzie są traktowane przez platformę Google jako wewnętrzny sandbox roboczy (niegenerujący zdarzeń produkcyjnych `StreamAssist`).
+>    - Zaangażowanie twórcy w tej fazie jest mierzone poprzez: **`agents_created`** (utworzenie agenta), **`agent_updates`** (liczba edycji, iteracji instrukcji i promptu) oraz **`agent_views`** (otwarcia profilu agenta).
+> 2. **Faza Konsumpcji Produkcyjnej (Agent Consumption - stan `ENABLED` / udostępniony organizacji)**:
+>    - Po opublikowaniu agenta tury dialogowe trafiają do audytowanego strumienia asystenta i są raportowane w metrykach: **`author_agent_sessions`** (czaty autora z własnym agentem) oraz **`org_agent_sessions`** (czaty wszystkich pracowników z agentem).
+> 3. **Wykluczenie Agenta Telemetrycznego**:
+>    - Zapytania administracyjne do systemowego Agenta Telemetrii są wykluczone z `author_agent_sessions`, dzięki czemu odpytywanie o raporty nie zawyża sztucznie statystyk użycia agentów biznesowych twórcy.
+
+> [!TIP]
 > **Formalizacja pojęć: Zapytania / Wywołania (`queries` / `invocations`) vs Czaty / Sesje (`sessions`)**
 > - **Zapytania / Wywołania (Invocations / Queries)**: Pojedyncze interakcje (prompty/requesty) przesłane przez użytkownika do asystenta lub agenta w ramach dialogu.
 > - **Czaty / Sesje (Sessions)**: Kompletne wątki konwersacyjne (ciągłe dyskusje), które mogą obejmować od jednej do wielu tur dialogowych. W naturalny sposób liczba zapytań jest zawsze równa lub większa od liczby sesji ($N_{\text{queries}} \ge N_{\text{sessions}}$).
@@ -117,7 +131,9 @@ Agent telemetrii (`Gemini Enterprise Telemetry & Adoption Agent`) korzysta z dyn
 | **Zadań Deep Research** | Unikalne sesje wieloetapowego badania rynku i syntezy wiedzy | BigQuery (`agents/deep_research`) |
 | **Wygenerowane obrazy** | Liczba wygenerowanych grafik i zdjęć (modele Imagen) | BigQuery (`is_image_generation`) |
 | **Utworzone agenty** | Liczba autorskich agentów stworzonych w Agent Designerze (tylko udane: `status.code = 0`) | Cloud Audit Logs (`CreateAgent`) |
-| **Czaty z agentami użytkownika (author_agent_sessions)** | W ilu dyskusjach/sesjach autor korzystał ze stworzonych przez siebie agentów (Self-Usage) | BigQuery (`v_author_agent_usage`) |
+| **Edycje agentów (agent_updates)** | Liczba zapisanych iteracji i modyfikacji konfiguracji/promptu agenta w Agent Designerze | BigQuery & Audit (`UpdateAgent`) |
+| **Odsłony agentów (agent_views)** | Liczba wyświetleń i wejść na profil/widok agenta w portalu | BigQuery (`WriteUserEvent` - `page_type = 'agent'`) |
+| **Czaty z agentami użytkownika (author_agent_sessions)** | W ilu dyskusjach/sesjach autor korzystał ze stworzonych przez siebie agentów (Self-Usage; bez Agenta Telemetrii) | BigQuery (`v_author_agent_usage`) |
 | **Czaty z agentami użytkownika (org_agent_sessions)** | W ilu dyskusjach/sesjach agenci stworzeni przez autora byli wywoływani w całej organizacji (autor + inni pracownicy) | BigQuery (`v_author_agent_usage`) |
 | **Wywołania agentów (invocations)** | Łączna liczba promptów wysłanych do agentów autora: `author_agent_invocations` oraz `org_agent_invocations` | BigQuery (`v_author_agent_usage`) |
 | **Konsumpcja tokenów** | Wolumen tokenów wejściowych (prompt), wyjściowych (odpowiedź) i całkowitych (`total_tokens`) | BigQuery (`gen_ai_client_inference`) |

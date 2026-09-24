@@ -81,6 +81,7 @@ def get_user_daily_utilization(user_email: str, days: int = 14) -> str:
         images_generated,
         agents_created,
         agent_updates,
+        agent_views,
         ui_page_views,
         failed_requests,
         author_agent_invocations,
@@ -126,7 +127,7 @@ def get_user_summary(user_email: str = "", order_by: str = "desc", limit: int = 
     """Zwraca zagregowane podsumowanie aktywności użytkowników w Gemini Enterprise.
 
     Jeśli podano user_email, zwraca łączne statystyki dla wskazanego użytkownika
-    (aktywne dni, łączne zapytania, sesje Deep Research, utworzone i edytowane agenty, odsłony UI, błędy, zużyte tokeny, daty pierwszej i ostatniej aktywności).
+    (aktywne dni, łączne zapytania, sesje Deep Research, utworzone i edytowane agenty, odsłony agentów i UI, błędy, zużyte tokeny, daty pierwszej i ostatniej aktywności).
     Jeśli user_email jest puste, zwraca listę użytkowników posortowaną według poziomu aktywności i adopcji:
     - order_by='desc' (domyślnie): najbardziej aktywni użytkownicy (Top N).
     - order_by='asc' (lub 'bottom', 'least_active'): najmniej performujący użytkownicy o najniższej adopcji (Bottom N).
@@ -160,6 +161,7 @@ def get_user_summary(user_email: str = "", order_by: str = "desc", limit: int = 
         SUM(images_generated) AS images_generated,
         SUM(agents_created) AS agents_created,
         SUM(agent_updates) AS agent_updates,
+        SUM(agent_views) AS agent_views,
         SUM(ui_page_views) AS ui_page_views,
         SUM(failed_requests) AS failed_requests,
         SUM(author_agent_invocations) AS author_agent_invocations,
@@ -391,14 +393,16 @@ ZASADY DZIAŁANIA I DOMYŚLNA PROPOZYCJA WYJŚCIOWA:
   -> Twoją GŁÓWNĄ I DOMYŚLNĄ PROPOZYCJĄ WYJŚCIOWĄ jest natychmiastowe wyświetlenie zestawienia 10 NAJMNIEJ PERFORMUJĄCYCH UŻYTKOWNIKÓW (Bottom 10) w organizacji. Są to użytkownicy o najniższej adopcji i najmniejszym zaangażowaniu w Gemini Enterprise, którzy najbardziej potrzebują onboardingu, wsparcia lub analizy przeszkód adopcyjnych.
   -> W tym celu ZAWSZE w pierwszej kolejności wywołaj narzędzie: `get_user_summary(order_by="bottom", limit=10)`.
   -> Zwróć zestawienie w czytelnej tabeli Markdown zawierającej DOKŁADNIE następujące kolumny:
-| Użytkownik | Zapytania asystenta (czat) | Zadań Deep Research | Wygenerowane obrazy | Utworzone agenty | Czaty z agentami użytkownika (author_agent_sessions) | Czaty z agentami użytkownika (org_agent_sessions) | Konsumpcja tokenów |
+| Użytkownik | Zapytania asystenta (czat) | Zadań Deep Research | Wygenerowane obrazy | Utworzone agenty | Edycje agentów (agent_updates) | Odsłony agentów (agent_views) | Czaty z agentami użytkownika (author_agent_sessions) | Czaty z agentami użytkownika (org_agent_sessions) | Konsumpcja tokenów |
   -> Precyzyjne mapowanie danych do kolumn tabeli:
      - "Użytkownik": identyfikator / adres e-mail (`user_id`)
      - "Zapytania asystenta (czat)": `assistant_queries`
      - "Zadań Deep Research": `deep_research_count`
      - "Wygenerowane obrazy": `images_generated`
      - "Utworzone agenty": `agents_created`
-     - "Czaty z agentami użytkownika (author_agent_sessions)": `author_agent_sessions` (liczba unikalnych dyskusji autora z jego własnymi agentami)
+     - "Edycje agentów (agent_updates)": `agent_updates` (liczba iteracji i poprawek promptu / konfiguracji w Agent Designerze)
+     - "Odsłony agentów (agent_views)": `agent_views` (liczba otwarć widoku profilu agenta w portalu)
+     - "Czaty z agentami użytkownika (author_agent_sessions)": `author_agent_sessions` (liczba unikalnych dyskusji autora z jego własnymi opublikowanymi agentami; wyklucza zapytania administracyjne do Agenta Telemetrii)
      - "Czaty z agentami użytkownika (org_agent_sessions)": `org_agent_sessions` (liczba unikalnych dyskusji wszystkich użytkowników w organizacji z agentami tego autora)
      - "Konsumpcja tokenów": sformatowana wartość `total_tokens` (np. 0, 1,250, 48,210)
   -> Pod tabelą:
@@ -429,15 +433,20 @@ ZASADY DZIAŁANIA I DOMYŚLNA PROPOZYCJA WYJŚCIOWA:
   -> wywołaj `get_observability_traces()`.
 
 INTERPRETACJA I PREZENTACJA METRYK:
-- `total_events` (Całkowite Zdarzenia): ZAWSZE wyjaśniaj strukturę całkowitych zdarzeń użytkownika. Jest to suma wszystkich interakcji z platformą: zapytań asystenta, wygenerowanych obrazów, ukończonych zadań Deep Research, utworzonych i edytowanych autorskich agentów oraz telemetrycznych odsłon zakładek i nawigacji w portalu UI.
+- `total_events` (Całkowite Zdarzenia): ZAWSZE wyjaśniaj strukturę całkowitych zdarzeń użytkownika. Jest to suma wszystkich interakcji z platformą: zapytań asystenta, wygenerowanych obrazów, ukończonych zadań Deep Research, utworzonych i edytowanych autorskich agentów, odsłon kart agentów oraz telemetrycznych odsłon zakładek i nawigacji w portalu UI.
 - `assistant_queries`: Zlicza standardowe zapytania konwersacyjne do asystenta (z wyłączeniem zadań Deep Research oraz generowania obrazów).
 - `images_generated` (Wygenerowane Obrazy): Zlicza obrazy i grafiki wygenerowane przez użytkownika za pomocą modeli graficznych w asystencie Gemini Enterprise.
 - `deep_research_count` (Liczba Deep Research): Reprezentuje unikalne, udane sesje badawcze. Jeśli zapytanie natrafiło na błąd sieciowy platformy i wymagało ponowienia ("Retry"), jest to wciąż 1 sesja badawcza, a nieudane wywołanie widoczne jest w polu `failed_requests`.
 - `agents_created` (Utworzone Agenty): Zlicza wyłącznie niestandardowe (customowe) agenty utworzone przez danego użytkownika w Agent Designerze (wykluczając agentów systemowych wbudowanych w silnik, np. domyślnego 'deep_research').
-- `author_agent_sessions` (Czaty z agentami użytkownika - autor): Liczba unikalnych wątków/dyskusji (sesji), w których dany użytkownik (autor) rozmawiał ze stworzonymi przez siebie agentami.
-- `org_agent_sessions` (Czaty z agentami użytkownika - organizacja): Łączna liczba dyskusji (sesji) z agentami danego autora prowadzonych przez wszystkich użytkowników w organizacji.
+- `agent_updates` (Edycje Agentów): Liczba zapisanych iteracji i poprawek promptu / konfiguracji agenta w Agent Designerze (zapisy w edytorze).
+- `agent_views` (Odsłony Agentów): Liczba wejść i wyświetleń widoku profilu agenta w portalu (zdarzenia `WriteUserEvent` z typem `page_type = 'agent'`).
+- DWUFAZOWY MODEL ADOPCJI AGENTÓW:
+  1. Faza Prototypowania (Agent Prototyping - agenty w stanie PRIVATE): Na tym etapie interakcje testowe twórcy w UI są traktowane jako wewnętrzny sandbox roboczy, a stopień zaangażowania użytkownika mierzony jest przez `agents_created`, `agent_updates` (iteracje promptu) oraz `agent_views` (testy i wejścia do profilu agenta).
+  2. Faza Konsumpcji Produkcyjnej (Agent Consumption - agenty w stanie ENABLED / udostępnione organizacji): Dopiero po opublikowaniu/udostępnieniu agenta tury dialogowe są audytowane jako sesje organizacji (`author_agent_sessions` oraz `org_agent_sessions`).
+  3. Wykluczenie Agenta Telemetrycznego: Z metryk autorskich (`author_agent_sessions` i `org_agent_sessions`) automatycznie wykluczany jest systemowy Agent Telemetryczny, dzięki czemu pytania administracyjne o raporty zużycia nie zniekształcają statystyk adopcji agentów biznesowych.
+- `author_agent_sessions` (Czaty z agentami użytkownika - autor): Liczba unikalnych wątków/dyskusji (sesji), w których dany użytkownik (autor) rozmawiał ze stworzonymi przez siebie agentami biznesowymi.
+- `org_agent_sessions` (Czaty z agentami użytkownika - organizacja): Łączna liczba dyskusji (sesji) z agentami danego autora prowadzonych przez wszystkich pracowników organizacji.
 - `author_agent_invocations` oraz `org_agent_invocations`: Pojedyncze tury/zapytania (wywołania) w ramach powyższych sesji.
-- `agent_updates`: Zlicza edycje i aktualizacje konfiguracji agentów.
 - `ui_page_views`: Odsłony stron i nawigacja w aplikacji.
 - `failed_requests`: Błędy techniczne platformy (np. błąd 500 / kod 13 wymagający wciśnięcia przycisku "Retry").
 - `total_tokens`: Tokeny modeli LLM. Zwróć uwagę, że w Gemini Enterprise badania Deep Research oraz generowanie grafik za pomocą modeli graficznych nie generują bezpośrednich tokenów tekstowych LLM, dlatego naliczają się przy bezpośrednich czatach z modelami asystenta.
