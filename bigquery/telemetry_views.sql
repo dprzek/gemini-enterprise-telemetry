@@ -263,6 +263,15 @@ raw_user_events AS (
         ORDER BY timestamp 
         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
       ),
+      FIRST_VALUE(CASE WHEN called_agent_id != "" THEN direct_user_id END IGNORE NULLS) OVER (
+        PARTITION BY called_agent_id 
+        ORDER BY timestamp 
+        ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING
+      ),
+      LAST_VALUE(direct_user_id IGNORE NULLS) OVER (
+        ORDER BY UNIX_SECONDS(timestamp)
+        RANGE BETWEEN 30 PRECEDING AND 30 FOLLOWING
+      ),
       "unassigned"
     ) AS user_id,
     method_name,
@@ -661,6 +670,15 @@ SELECT
       PARTITION BY called_agent_id 
       ORDER BY timestamp 
       ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ),
+    FIRST_VALUE(CASE WHEN called_agent_id != "" THEN direct_user_id END IGNORE NULLS) OVER (
+      PARTITION BY called_agent_id 
+      ORDER BY timestamp 
+      ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING
+    ),
+    LAST_VALUE(direct_user_id IGNORE NULLS) OVER (
+      ORDER BY UNIX_SECONDS(timestamp)
+      RANGE BETWEEN 30 PRECEDING AND 30 FOLLOWING
     ),
     "anonymous_user"
   ) AS user_id,
