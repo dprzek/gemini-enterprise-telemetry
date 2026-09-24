@@ -98,7 +98,22 @@ def main():
         'jsonPayload.logMetadata.methodName="ConverseConversation" OR '
         'jsonPayload.logMetadata.methodName="AnswerQuery")'
     )
-    print(f"--> [1/3] Sprawdzanie i konfiguracja reguły wykluczenia na zlewie '{sink_name}'...")
+    sink_filter = (
+        'logName=~"cloudaudit.googleapis.com" OR '
+        '(logName=~"discoveryengine.googleapis.com%2Fgemini_enterprise_user_activity" AND '
+        'NOT (jsonPayload.logMetadata.methodName="Search" OR '
+        'jsonPayload.logMetadata.methodName="ConverseConversation" OR '
+        'jsonPayload.logMetadata.methodName="AnswerQuery")) OR '
+        'logName=~"discoveryengine.googleapis.com%2Fgen_ai.client.inference.operation.details"'
+    )
+    print(f"--> [1/3] Sprawdzanie i konfiguracja filtra oraz wykluczenia na zlewie '{sink_name}'...")
+    cmd_filter = [
+        "gcloud", "logging", "sinks", "update", sink_name,
+        f"--project={project_id}",
+        f"--log-filter={sink_filter}"
+    ]
+    subprocess.run(cmd_filter, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
     cmd_excl = [
         "gcloud", "logging", "sinks", "update", sink_name,
         f"--project={project_id}",

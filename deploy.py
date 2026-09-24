@@ -269,7 +269,10 @@ def setup_bigquery_and_sink(project_id, location, dataset_id, sink_name="gemini-
     # 2. Zlew Cloud Logging do BigQuery
     sink_filter = (
         'logName=~"cloudaudit.googleapis.com" OR '
-        'logName=~"discoveryengine.googleapis.com%2Fgemini_enterprise_user_activity" OR '
+        '(logName=~"discoveryengine.googleapis.com%2Fgemini_enterprise_user_activity" AND '
+        'NOT (jsonPayload.logMetadata.methodName="Search" OR '
+        'jsonPayload.logMetadata.methodName="ConverseConversation" OR '
+        'jsonPayload.logMetadata.methodName="AnswerQuery")) OR '
         'logName=~"discoveryengine.googleapis.com%2Fgen_ai.client.inference.operation.details"'
     )
     destination = f"bigquery.googleapis.com/projects/{project_id}/datasets/{dataset_id}"
@@ -279,7 +282,13 @@ def setup_bigquery_and_sink(project_id, location, dataset_id, sink_name="gemini-
     res = subprocess.run(cmd_check, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
     if res.returncode == 0 and res.stdout.strip():
         writer_identity = res.stdout.strip()
-        print(f"    Zlew '{sink_name}' już istnieje.")
+        print(f"    Zlew '{sink_name}' już istnieje. Aktualizacja filtra...")
+        cmd_upd = [
+            "gcloud", "logging", "sinks", "update", sink_name,
+            f"--log-filter={sink_filter}",
+            f"--project={project_id}"
+        ]
+        subprocess.run(cmd_upd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     else:
         cmd_create = [
             "gcloud", "logging", "sinks", "create", sink_name, destination,
