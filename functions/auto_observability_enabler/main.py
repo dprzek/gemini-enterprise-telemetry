@@ -108,21 +108,33 @@ def auto_enable_observability(cloud_event):
         
         proto_payload = payload.get("protoPayload", {})
         method_name = proto_payload.get("methodName", "")
+        caller = proto_payload.get("authenticationInfo", {}).get("principalEmail", "")
         
-        if "AgentService.CreateAgent" not in method_name:
+        # Ochrona przed pętlą zdarzeń: ignoruj wywołania wykonane przez samo konto serwisowe funkcji
+        if "sa-ge-auto-obs" in caller:
+            logger.info("Zignorowano zdarzenie wywołane przez sa-ge-auto-obs (ochrona przed pętlą).")
+            return
+            
+        if not any(m in method_name for m in ["AgentService.CreateAgent", "AgentService.UpdateAgent"]):
             logger.info(f"Zignorowano metodę: {method_name}")
             return
             
-        # Wyciągnięcie nazwy zasobu agenta z odpowiedzi CreateAgent
+        # Wyciągnięcie nazwy zasobu agenta z odpowiedzi lub resourceName
         resp = proto_payload.get("response", {})
-        agent_name = resp.get("name")
+        agent_name = resp.get("name") or proto_payload.get("resourceName")
         
-        if not agent_name:
-            logger.warning("Brak pola 'name' w protoPayload.response.")
+        if not agent_name or "/agents/" not in agent_name:
+            logger.warning(f"Brak prawidłowej ścieżki agenta w protoPayload (name={agent_name}).")
             return
             
+        # Jeśli agent ma już włączoną obserwowalność, pomijamy zbędny PATCH
+        obs_config = resp.get("observabilityConfig") or {}
+        if obs_config.get("observabilityEnabled") is True:
+            logger.info(f"Agent {agent_name} posiada już aktywną obserwowalność (observabilityEnabled: True). Pomijam.")
+            return
+
         project_id = payload.get("resource", {}).get("labels", {}).get("project_id") or os.environ.get("GCP_PROJECT")
-        logger.info(f"Wykryto nowego agenta: {agent_name}. Włączam obserwowalność...")
+        logger.info(f"Wykryto zdarzenie {method_name} dla agenta: {agent_name} (autor: {caller}). Włączam obserwowalność...")
         patch_agent_observability(agent_name, project_id=project_id)
         
     except Exception as e:

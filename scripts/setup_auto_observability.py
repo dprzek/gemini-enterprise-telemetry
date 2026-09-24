@@ -87,8 +87,12 @@ def setup_auto_observability_enabler(project_id, location, engine_id):
         print(f"    ✔ Temat Pub/Sub '{topic_name}' już istnieje.")
 
     # 2. Cloud Logging Sink
-    print(f"    Konfiguracja zlewu Cloud Logging '{sink_name}' (filtr na CreateAgent)...")
-    log_filter = 'logName=~"cloudaudit.googleapis.com%2Factivity" AND protoPayload.methodName="google.cloud.discoveryengine.v1main.AgentService.CreateAgent"'
+    print(f"    Konfiguracja zlewu Cloud Logging '{sink_name}' (filtr na CreateAgent i UpdateAgent)...")
+    log_filter = (
+        'logName=~"cloudaudit.googleapis.com%2Factivity" AND '
+        'protoPayload.methodName=~"google.cloud.discoveryengine.v1.*\\.AgentService\\.(CreateAgent|UpdateAgent)" AND '
+        'NOT protoPayload.authenticationInfo.principalEmail: "sa-ge-auto-obs"'
+    )
     destination = f"pubsub.googleapis.com/projects/{project_id}/topics/{topic_name}"
 
     res = subprocess.run(["gcloud", "logging", "sinks", "describe", sink_name, f"--project={project_id}", "--format=value(writerIdentity)"],
@@ -100,6 +104,12 @@ def setup_auto_observability_enabler(project_id, location, engine_id):
         ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
         res = subprocess.run(["gcloud", "logging", "sinks", "describe", sink_name, f"--project={project_id}", "--format=value(writerIdentity)"],
                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    else:
+        # Zaktualizuj filtr w istniejącym zlewie
+        subprocess.run([
+            "gcloud", "logging", "sinks", "update", sink_name, destination,
+            f"--log-filter={log_filter}", f"--project={project_id}", "--quiet"
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
     
     writer_identity = res.stdout.strip()
     if writer_identity:
@@ -108,7 +118,7 @@ def setup_auto_observability_enabler(project_id, location, engine_id):
             f"--member={writer_identity}", "--role=roles/pubsub.publisher",
             f"--project={project_id}", "--quiet"
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-    print(f"    ✔ Zlew Cloud Logging '{sink_name}' jest aktywny.")
+    print(f"    ✔ Zlew Cloud Logging '{sink_name}' jest aktywny (filtr: CreateAgent + UpdateAgent).")
 
     # 3. Service Account dla funkcji
     print(f"    Weryfikacja konta serwisowego '{sa_email}'...")
