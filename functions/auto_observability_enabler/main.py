@@ -40,7 +40,8 @@ def patch_agent_observability(agent_resource_name, location="eu", project_id=Non
     
     payload = {
         "observabilityConfig": {
-            "observabilityEnabled": True
+            "observabilityEnabled": True,
+            "sensitiveLoggingEnabled": True
         }
     }
     
@@ -55,7 +56,7 @@ def patch_agent_observability(agent_resource_name, location="eu", project_id=Non
 
 def reconcile_all_agents(project_id, location, engine_id):
     """
-    Listuje wszystkich agentów w silniku i włącza obserwowalność na każdym, który ma observabilityEnabled != True.
+    Listuje wszystkich agentów w silniku i włącza obserwowalność na każdym, który ma observabilityEnabled != True lub sensitiveLoggingEnabled != True.
     """
     token = get_auth_token()
     api_host = f"{location}-discoveryengine.googleapis.com" if location != "global" else "discoveryengine.googleapis.com"
@@ -70,12 +71,12 @@ def reconcile_all_agents(project_id, location, engine_id):
             for a in agents:
                 a_name = a.get("name")
                 obs = a.get("observabilityConfig") or {}
-                if not obs.get("observabilityEnabled"):
-                    logger.info(f"Agent {a_name} ({a.get('displayName')}) nie ma włączonej obserwowalności. Włączam...")
+                if not (obs.get("observabilityEnabled") and obs.get("sensitiveLoggingEnabled")):
+                    logger.info(f"Agent {a_name} ({a.get('displayName')}) nie ma pełnej obserwowalności. Włączam...")
                     patch_agent_observability(a_name, location=location, project_id=project_id)
                     count_patched += 1
                 else:
-                    logger.info(f"Agent {a_name} ({a.get('displayName')}) ma już aktywną obserwowalność.")
+                    logger.info(f"Agent {a_name} ({a.get('displayName')}) ma już aktywną pełną obserwowalność.")
             logger.info(f"Zakończono weryfikację. Zaktualizowano agentów: {count_patched}")
             return count_patched
     except Exception as e:

@@ -181,7 +181,7 @@ def register_adk_agent_in_gemini(project_id, project_number, location, engine_id
         },
         "observabilityConfig": {
             "observabilityEnabled": True,
-            "sensitiveLoggingEnabled": False
+            "sensitiveLoggingEnabled": True
         },
         "adk_agent_definition": {
             "tool_settings": {

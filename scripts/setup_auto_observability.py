@@ -50,9 +50,9 @@ def reconcile_existing_agents(project_id, location, engine_id, token):
             for a in agents:
                 a_name = a.get("name")
                 obs = a.get("observabilityConfig") or {}
-                if not obs.get("observabilityEnabled"):
+                if not (obs.get("observabilityEnabled") and obs.get("sensitiveLoggingEnabled")):
                     patch_url = f"https://{api_host}/v1alpha/{a_name}?updateMask=observabilityConfig"
-                    patch_body = json.dumps({"observabilityConfig": {"observabilityEnabled": True}}).encode("utf-8")
+                    patch_body = json.dumps({"observabilityConfig": {"observabilityEnabled": True, "sensitiveLoggingEnabled": True}}).encode("utf-8")
                     patch_req = urllib.request.Request(
                         patch_url, data=patch_body, method="PATCH",
                         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json", "X-Goog-User-Project": project_id}

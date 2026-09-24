@@ -86,7 +86,7 @@ agent_creators AS (
     AND NOT author_user_id LIKE "%@gcp-sa-%.iam.gserviceaccount.com"
   GROUP BY 1, 2
 ),
-raw_user_events AS (
+base_user_events AS (
   SELECT * FROM (
     -- Strumień aktywności użytkowników ze zlewu Cloud Logging (czas rzeczywisty)
     SELECT
@@ -94,10 +94,8 @@ raw_user_events AS (
       timestamp,
       COALESCE(
         NULLIF(NULLIF(TRIM(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.useriamprincipal")), "<elided>"), ""),
-        NULLIF(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.userpseudoid"), ""),
-        (SELECT email FROM primary_admin),
-        "system"
-      ) AS user_id,
+        NULLIF(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.userpseudoid"), "")
+      ) AS direct_user_id,
       COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.methodname"), "") AS method_name,
       COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.agentspaceinfo.agentspacepagetype"), "") AS page_type,
       COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.eventtype"), "") AS event_type,
@@ -122,6 +120,7 @@ raw_user_events AS (
         REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.session"), ""), r"/sessions/([^/]+)"),
         ""
       ) AS session_id,
+      trace,
       CASE 
         WHEN COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.methodname"), "") IN ("StreamAssist", "Assist")
          AND (
@@ -151,22 +150,11 @@ raw_user_events AS (
            OR TO_JSON_STRING(jsonPayload) LIKE "%deep_research%"
          )
          AND NOT (
-           COALESCE(
-             NULLIF(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.agentsspec.agentspecs[0].agentid"), ""),
-             NULLIF(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.agentsspec.agentspecs.agentid"), ""),
-             REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.agentinfo.agent"), ""), r"/agents/([^/]+)"),
-             REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.agentspaceinfo.agent"), ""), r"/agents/([^/]+)"),
-             ""
-           ) != ""
+           LOWER(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.agentinfo.displayname"), "")) LIKE "%telemetry%"
+           OR LOWER(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.agentinfo.displayname"), "")) LIKE "%adoption%"
          )
-         AND NOT (
-           REGEXP_CONTAINS(LOWER(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.modelinfo.model"), "")), r"(image|imagen)")
-           OR COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.agentspaceinfo.agentspacepagetype"), "") = "image-generation"
-           OR REGEXP_CONTAINS(LOWER(TO_JSON_STRING(jsonPayload)), r"(wygeneruj|stwórz|utwórz|zrób|generuj|generate|create|draw|narysuj|namaluj|paint)\s+(obraz|obrazek|grafik|zdjęci|image|picture|photo|illustration)")
-           OR REGEXP_CONTAINS(LOWER(TO_JSON_STRING(jsonPayload)), r'"(obrazek|obraz|image|zdjęcie)\s+')
-           OR LOWER(TO_JSON_STRING(jsonPayload)) LIKE "%image-generation%"
-         )
-         AND (SAFE_CAST(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.status.code") AS INT64) IS NULL OR SAFE_CAST(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.status.code") AS INT64) = 0) THEN 1 
+         AND (SAFE_CAST(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.status.code") AS INT64) IS NULL OR SAFE_CAST(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.status.code") AS INT64) = 0)
+         AND JSON_QUERY(TO_JSON_STRING(jsonPayload), "$.response") IS NOT NULL THEN 1 
         ELSE 0 
       END AS is_assistant_query,
       CASE
@@ -196,10 +184,8 @@ raw_user_events AS (
       timestamp,
       COALESCE(
         NULLIF(NULLIF(TRIM(user_iam_principal), "<elided>"), ""),
-        NULLIF(user_pseudo_id, ""),
-        (SELECT email FROM primary_admin),
-        "system"
-      ) AS user_id,
+        NULLIF(user_pseudo_id, "")
+      ) AS direct_user_id,
       method_name,
       page_type,
       event_type,
@@ -214,6 +200,7 @@ raw_user_events AS (
         ""
       ) AS agent_display_name,
       REGEXP_EXTRACT(COALESCE(raw_payload, ""), r"sessions/([^/\"'\s]+)") AS session_id,
+      REGEXP_EXTRACT(raw_payload, r"traces/([a-zA-Z0-9]+)") AS trace,
       CASE 
         WHEN method_name IN ("StreamAssist", "Assist") 
          AND (agent_id = "deep_research" OR raw_payload LIKE "%agents/deep_research%") THEN 1 
@@ -232,16 +219,18 @@ raw_user_events AS (
       END AS is_image_generation,
       CASE 
         WHEN method_name IN ("StreamAssist", "Assist") 
-        AND NOT (agent_id = "deep_research" OR raw_payload LIKE "%agents/deep_research%")
-        AND (agent_id IS NULL OR agent_id = "")
-        AND REGEXP_EXTRACT(raw_payload, r"/agents/([0-9a-zA-Z_\-]+)") IS NULL
-        AND NOT (
-          REGEXP_CONTAINS(LOWER(raw_payload), r'"model"\s*:\s*"[^"]*(image|imagen)[^"]*"')
-          OR page_type = "image-generation" 
-          OR REGEXP_CONTAINS(LOWER(raw_payload), r"(wygeneruj|stwórz|utwórz|zrób|generuj|generate|create|draw|narysuj|namaluj|paint)\s+(obraz|obrazek|grafik|zdjęci|image|picture|photo|illustration)")
-          OR REGEXP_CONTAINS(LOWER(raw_payload), r'"(obrazek|obraz|image|zdjęcie)\s+')
-          OR LOWER(raw_payload) LIKE "%image-generation%"
-        ) THEN 1 
+         AND NOT (agent_id = "deep_research" OR raw_payload LIKE "%agents/deep_research%")
+         AND NOT (
+           LOWER(COALESCE(REGEXP_EXTRACT(raw_payload, r'"displayName":\s*"([^"]+)"'), "")) LIKE "%telemetry%"
+           OR LOWER(COALESCE(REGEXP_EXTRACT(raw_payload, r'"displayName":\s*"([^"]+)"'), "")) LIKE "%adoption%"
+         )
+         AND NOT (
+           REGEXP_CONTAINS(LOWER(raw_payload), r'"model"\s*:\s*"[^"]*(image|imagen)[^"]*"')
+           OR page_type = "image-generation" 
+           OR REGEXP_CONTAINS(LOWER(raw_payload), r"(wygeneruj|stwórz|utwórz|zrób|generuj|generate|create|draw|narysuj|namaluj|paint)\s+(obraz|obrazek|grafik|zdjęci|image|picture|photo|illustration)")
+           OR REGEXP_CONTAINS(LOWER(raw_payload), r'"(obrazek|obraz|image|zdjęcie)\s+')
+           OR LOWER(raw_payload) LIKE "%image-generation%"
+         ) THEN 1 
         ELSE 0 
       END AS is_assistant_query,
       CASE
@@ -257,6 +246,41 @@ raw_user_events AS (
       1 AS priority
     FROM `{project_id}.{dataset_id}.gemini_enterprise_user_activity`
   )
+),
+raw_user_events AS (
+  SELECT
+    activity_date,
+    timestamp,
+    COALESCE(
+      direct_user_id,
+      FIRST_VALUE(direct_user_id IGNORE NULLS) OVER (
+        PARTITION BY session_id 
+        ORDER BY timestamp 
+        ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+      ),
+      LAST_VALUE(CASE WHEN called_agent_id != "" THEN direct_user_id END IGNORE NULLS) OVER (
+        PARTITION BY called_agent_id 
+        ORDER BY timestamp 
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+      ),
+      "unassigned"
+    ) AS user_id,
+    method_name,
+    page_type,
+    event_type,
+    engine,
+    called_agent_id,
+    agent_display_name,
+    session_id,
+    trace,
+    is_deep_research,
+    is_image_generation,
+    is_assistant_query,
+    is_custom_agent_created,
+    is_error_event,
+    insertId,
+    priority
+  FROM base_user_events
   QUALIFY ROW_NUMBER() OVER(
     PARTITION BY COALESCE(NULLIF(insertId, ""), CONCAT(CAST(timestamp AS STRING), "_", method_name))
     ORDER BY priority ASC, timestamp ASC
@@ -331,7 +355,7 @@ raw_audit AS (
     NULLIF(principal_email, ""),
     NULLIF(JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.authenticationInfo.principalEmail"), ""),
     ""
-  ) LIKE "%@gcp-sa-%.iam.gserviceaccount.com"
+  ) LIKE "%gserviceaccount.com"
   QUALIFY ROW_NUMBER() OVER(
     PARTITION BY COALESCE(NULLIF(insert_id, ""), NULLIF(insertId, ""), CONCAT(CAST(timestamp AS STRING), "_", COALESCE(method_name, JSON_VALUE(TO_JSON_STRING(protopayload_auditlog), "$.methodName"), "")))
     ORDER BY timestamp
@@ -357,7 +381,7 @@ raw_tokens AS (
       inf.timestamp,
       COALESCE(
         act.user_id,
-        CASE WHEN act.trace IS NOT NULL THEN (SELECT email FROM primary_admin) ELSE "unassigned" END
+        "unassigned"
       ) AS user_id,
       CAST(COALESCE(SAFE_CAST(JSON_VALUE(TO_JSON_STRING(inf.jsonPayload), "$.gen_ai_usage_input_tokens") AS FLOAT64), 0) AS INT64) AS input_tokens,
       CAST(COALESCE(SAFE_CAST(JSON_VALUE(TO_JSON_STRING(inf.jsonPayload), "$.gen_ai_usage_output_tokens") AS FLOAT64), 0) AS INT64) AS output_tokens,
@@ -366,26 +390,7 @@ raw_tokens AS (
       1 AS priority
     FROM `{project_id}.{dataset_id}.discoveryengine_googleapis_com_gen_ai_client_inference_operation_details` inf
     LEFT JOIN (
-      SELECT trace, user_id FROM (
-        SELECT trace,
-          COALESCE(
-            NULLIF(NULLIF(TRIM(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.useriamprincipal")), "<elided>"), ""),
-            NULLIF(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.userpseudoid"), "")
-          ) AS user_id,
-          timestamp
-        FROM `{project_id}.{dataset_id}.discoveryengine_googleapis_com_gemini_enterprise_user_activity`
-        WHERE trace IS NOT NULL
-        UNION ALL
-        SELECT
-          REGEXP_EXTRACT(raw_payload, r"traces/([a-zA-Z0-9]+)") AS trace,
-          COALESCE(
-            NULLIF(NULLIF(TRIM(user_iam_principal), "<elided>"), ""),
-            NULLIF(user_pseudo_id, "")
-          ) AS user_id,
-          timestamp
-        FROM `{project_id}.{dataset_id}.gemini_enterprise_user_activity`
-        WHERE REGEXP_EXTRACT(raw_payload, r"traces/([a-zA-Z0-9]+)") IS NOT NULL
-      )
+      SELECT trace, user_id FROM raw_user_events WHERE trace IS NOT NULL AND user_id != "unassigned"
       QUALIFY ROW_NUMBER() OVER(PARTITION BY trace ORDER BY timestamp DESC) = 1
     ) act
       ON inf.trace = act.trace
@@ -398,8 +403,7 @@ raw_tokens AS (
       timestamp,
       COALESCE(
         NULLIF(NULLIF(TRIM(user_id), "user"), ""),
-        (SELECT email FROM primary_admin),
-        "system"
+        "unassigned"
       ) AS user_id,
       CAST(input_tokens AS INT64) AS input_tokens,
       CAST(output_tokens AS INT64) AS output_tokens,
@@ -466,7 +470,8 @@ FULL OUTER JOIN aggregated_tokens t
 FULL OUTER JOIN agent_usage_events ag
   ON COALESCE(u.user_id, a.user_id, t.user_id) = ag.user_id
   AND COALESCE(u.activity_date, a.activity_date, t.activity_date) = ag.activity_date
-WHERE COALESCE(u.user_id, a.user_id, t.user_id, ag.user_id) NOT IN ("unknown", "system", "unassigned");
+WHERE COALESCE(u.user_id, a.user_id, t.user_id, ag.user_id) NOT IN ("unknown", "system", "unassigned")
+  AND NOT COALESCE(u.user_id, a.user_id, t.user_id, ag.user_id) LIKE "%gserviceaccount.com";
 
 -- 2. Widok wstecznej kompatybilności (alias dla v_user_daily_utilization)
 CREATE OR REPLACE VIEW `{project_id}.{dataset_id}.v_user_utilization` AS
@@ -608,25 +613,65 @@ ORDER BY total_calls DESC;
 
 -- 6. Widok rozproszonych śladów i spanów OpenTelemetry (Cloud Trace)
 CREATE OR REPLACE VIEW `{project_id}.{dataset_id}.v_observability_traces` AS
+WITH base_traces AS (
+  SELECT
+    timestamp,
+    DATE(timestamp) AS trace_date,
+    trace AS trace_id,
+    spanId AS span_id,
+    COALESCE(
+      NULLIF(NULLIF(TRIM(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.useriamprincipal")), "<elided>"), ""),
+      NULLIF(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.userpseudoid"), "")
+    ) AS direct_user_id,
+    COALESCE(
+      REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.agentinfo.agent"), ""), r"/agents/([^/]+)"),
+      REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.agentspaceinfo.agent"), ""), r"/agents/([^/]+)"),
+      ""
+    ) AS called_agent_id,
+    COALESCE(
+      REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.answer.name"), ""), r"/sessions/([^/]+)"),
+      REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.parent"), ""), r"/sessions/([^/]+)"),
+      REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.session"), ""), r"/sessions/([^/]+)"),
+      REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.session"), ""), r"/sessions/([^/]+)"),
+      ""
+    ) AS session_id,
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.methodname") AS method_name,
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.servicename") AS service_name,
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.answer.state") AS answer_state,
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.agentinfo.displayname") AS agent_display_name,
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.agentinfo.agent") AS agent_resource,
+    severity,
+    insertId
+  FROM `{project_id}.{dataset_id}.discoveryengine_googleapis_com_gemini_enterprise_user_activity`
+  WHERE trace IS NOT NULL
+)
 SELECT
   timestamp,
-  DATE(timestamp) AS trace_date,
-  trace AS trace_id,
-  spanId AS span_id,
+  trace_date,
+  trace_id,
+  span_id,
   COALESCE(
-    NULLIF(NULLIF(TRIM(JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.useriamprincipal")), "<elided>"), ""),
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.request.userevent.userpseudoid"),
+    direct_user_id,
+    FIRST_VALUE(direct_user_id IGNORE NULLS) OVER (
+      PARTITION BY session_id 
+      ORDER BY timestamp 
+      ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+    ),
+    LAST_VALUE(CASE WHEN called_agent_id != "" THEN direct_user_id END IGNORE NULLS) OVER (
+      PARTITION BY called_agent_id 
+      ORDER BY timestamp 
+      ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ),
     "anonymous_user"
   ) AS user_id,
-  JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.methodname") AS method_name,
-  JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.logmetadata.servicename") AS service_name,
-  JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.answer.state") AS answer_state,
-  JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.agentinfo.displayname") AS agent_display_name,
-  JSON_VALUE(TO_JSON_STRING(jsonPayload), "$.response.agentinfo.agent") AS agent_resource,
+  method_name,
+  service_name,
+  answer_state,
+  agent_display_name,
+  agent_resource,
   severity,
   insertId
-FROM `{project_id}.{dataset_id}.discoveryengine_googleapis_com_gemini_enterprise_user_activity`
-WHERE trace IS NOT NULL
+FROM base_traces
 ORDER BY timestamp DESC;
 
 -- 7. Widok szczegółowej telemetrii zużycia tokenów LLM (OpenTelemetry Spans & GenAI Operations)

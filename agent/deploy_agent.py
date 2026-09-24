@@ -194,7 +194,7 @@ agent_payload = {
     },
     "observabilityConfig": {
         "observabilityEnabled": True,
-        "sensitiveLoggingEnabled": False
+        "sensitiveLoggingEnabled": True
     },
     "starterPrompts": starter_prompts,
     "icon": {"content": ""},
