@@ -193,7 +193,8 @@ agent_payload = {
         "invocationMode": "AUTOMATIC"
     },
     "observabilityConfig": {
-        "observabilityEnabled": True
+        "observabilityEnabled": True,
+        "sensitiveLoggingEnabled": False
     },
     "starterPrompts": starter_prompts,
     "icon": {"content": ""},

@@ -179,6 +179,10 @@ def register_adk_agent_in_gemini(project_id, project_number, location, engine_id
         "sharingConfig": {
             "scope": scope
         },
+        "observabilityConfig": {
+            "observabilityEnabled": True,
+            "sensitiveLoggingEnabled": False
+        },
         "adk_agent_definition": {
             "tool_settings": {
                 "tool_description": "Narzędzie do pobierania w czasie rzeczywistym telemetrii, adopcji użytkowników, zużycia tokenów, czasów odpowiedzi oraz limitów kwotowych w Gemini Enterprise."
